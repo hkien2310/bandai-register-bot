@@ -45,34 +45,51 @@ class BrowserInstance:
             log.info("Khởi động trình duyệt không dùng proxy")
 
         executable_path = config.BROWSER_PATH if config.BROWSER_PATH else None
-        channel = None
-        if executable_path:
-            log.info(f"Dùng trình duyệt tùy chỉnh: {executable_path}")
-        else:
-            import platform
-            if platform.system() == "Windows":
-                log.info("Dùng trình duyệt mặc định của máy (Microsoft Edge)")
-                channel = "msedge"
-            else:
-                log.info("Dùng trình duyệt mặc định của máy (Google Chrome)")
-                channel = "chrome"
-
         log.info(f"Profile dir: {self.profile_dir}")
 
-        self.context = await self.playwright.chromium.launch_persistent_context(
-            user_data_dir=str(self.profile_dir),
-            executable_path=executable_path,
-            channel=channel,
-            headless=config.HEADLESS,
-            ignore_https_errors=True,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-            ],
-            viewport={"width": 1280, "height": 800},
-            **launch_args
-        )
+        if executable_path:
+            log.info(f"Dùng trình duyệt tùy chỉnh: {executable_path}")
+            self.context = await self.playwright.chromium.launch_persistent_context(
+                user_data_dir=str(self.profile_dir),
+                executable_path=executable_path,
+                headless=config.HEADLESS,
+                ignore_https_errors=True,
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                ],
+                viewport={"width": 1280, "height": 800},
+                **launch_args
+            )
+        else:
+            import platform
+            # Thử Edge trước trên Windows, Chrome trước trên Mac/Linux
+            channels_to_try = ["msedge", "chrome"] if platform.system() == "Windows" else ["chrome", "msedge"]
+            
+            for channel in channels_to_try:
+                try:
+                    log.info(f"Đang thử khởi động với trình duyệt: {channel}")
+                    self.context = await self.playwright.chromium.launch_persistent_context(
+                        user_data_dir=str(self.profile_dir),
+                        channel=channel,
+                        headless=config.HEADLESS,
+                        ignore_https_errors=True,
+                        args=[
+                            "--disable-blink-features=AutomationControlled",
+                            "--no-sandbox",
+                            "--disable-setuid-sandbox",
+                        ],
+                        viewport={"width": 1280, "height": 800},
+                        **launch_args
+                    )
+                    log.info(f"✅ Khởi động thành công với: {channel}")
+                    break
+                except Exception as e:
+                    log.warning(f"⚠️ Không thể khởi động bằng {channel}: {e}")
+            
+            if not self.context:
+                raise Exception("Không tìm thấy Chrome hay Edge trên máy! Vui lòng cài đặt ít nhất một trong hai.")
 
         page = self.context.pages[0] if self.context.pages else await self.context.new_page()
         # Đặt timeout mặc định 90s cho môi trường proxy chậm
