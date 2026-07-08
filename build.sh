@@ -30,7 +30,4 @@ cp config.json Release/
 echo "Tạo thư mục data trống..."
 mkdir -p Release/data
 
-echo "Copy Playwright browsers..."
-cp -R ~/Library/Caches/ms-playwright Release/ms-playwright-browsers
-
 echo "Hoàn thành!"

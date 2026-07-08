@@ -49,8 +49,13 @@ class BrowserInstance:
         if executable_path:
             log.info(f"Dùng trình duyệt tùy chỉnh: {executable_path}")
         else:
-            log.info("Dùng trình duyệt mặc định của máy (Google Chrome)")
-            channel = "chrome"
+            import platform
+            if platform.system() == "Windows":
+                log.info("Dùng trình duyệt mặc định của máy (Microsoft Edge)")
+                channel = "msedge"
+            else:
+                log.info("Dùng trình duyệt mặc định của máy (Google Chrome)")
+                channel = "chrome"
 
         log.info(f"Profile dir: {self.profile_dir}")
 
