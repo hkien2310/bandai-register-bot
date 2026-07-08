@@ -12,8 +12,8 @@ if %ERRORLEVEL% neq 0 (
 )
 
 echo Tao thu muc Release...
-if not exist "Release" mkdir Release
-del /q "Release\*"
+if exist "Release" rmdir /s /q "Release"
+mkdir "Release"
 
 echo Copy file thuc thi vao Release...
 if not exist "dist\BandaiRegister.exe" (
