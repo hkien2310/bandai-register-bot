@@ -1,0 +1,22 @@
+[
+  {
+    "name": "request",
+    "type": "hidden"
+  },
+  {
+    "name": "ot-group-id-C0002",
+    "type": "checkbox"
+  },
+  {
+    "name": "ot-group-id-C0003",
+    "type": "checkbox"
+  },
+  {
+    "name": "ot-group-id-C0004",
+    "type": "checkbox"
+  },
+  {
+    "name": "vendor-search-handler",
+    "type": "text"
+  }
+]

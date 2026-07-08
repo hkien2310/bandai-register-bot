@@ -1,0 +1,56 @@
+# Environments (không còn dùng .env, config đã gộp vào config.json)
+# .env vẫn giữ ở đây để backward compat nếu ai dùng phiên bản cũ
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Project specific
+data/
+config.json
+*.log
+*.png
+test.py
+test_*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+Release/
+*.spec
+src/embedded_credentials.py
