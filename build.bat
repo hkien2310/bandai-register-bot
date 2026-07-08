@@ -5,12 +5,22 @@ rmdir /s /q dist
 
 echo Dang build BandaiRegister...
 pyinstaller --clean -y RegisterBot.spec
+if %ERRORLEVEL% neq 0 (
+    echo [LOI] PyInstaller build that bai!
+    pause
+    exit /b %ERRORLEVEL%
+)
 
 echo Tao thu muc Release...
 if not exist "Release" mkdir Release
 del /q "Release\*"
 
 echo Copy file thuc thi vao Release...
+if not exist "dist\BandaiRegister.exe" (
+    echo [LOI] Khong tim thay dist\BandaiRegister.exe. PyInstaller co the da gap loi.
+    pause
+    exit /b 1
+)
 copy "dist\BandaiRegister.exe" "Release\"
 
 echo Copy file cau hinh...
