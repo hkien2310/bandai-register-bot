@@ -8,6 +8,10 @@ if os.path.exists('data/credentials.json'):
     datas_list.append(('data/credentials.json', 'data'))
 else:
     print("WARNING: data/credentials.json not found! The build will not contain credentials.")
+if os.path.exists('data/app_secrets.json'):
+    datas_list.append(('data/app_secrets.json', 'data'))
+else:
+    print("WARNING: data/app_secrets.json not found! The build will not contain secrets.")
 
 a = Analysis(
     ['gui.py'],
