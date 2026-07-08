@@ -42,15 +42,15 @@ else:
 def _get(key, default=""):
     return _cfg.get(key, default)
 
-# Load secrets from data/app_secrets.json (will be bundled by PyInstaller)
-APP_SECRETS_FILE = BUNDLE_DIR / "data" / "app_secrets.json"
+# Load secrets from data/sheet_config.json (will be bundled by PyInstaller)
+APP_SECRETS_FILE = BUNDLE_DIR / "data" / "sheet_config.json"
 app_secrets = {}
 if APP_SECRETS_FILE.exists():
     try:
         with open(APP_SECRETS_FILE, "r", encoding="utf-8") as f:
             app_secrets = json.load(f)
     except Exception as e:
-        print(f"Lỗi đọc app_secrets.json: {e}")
+        print(f"Lỗi đọc sheet_config.json: {e}")
 
 # Paths
 DATA_DIR = ROOT_DIR / "data"
