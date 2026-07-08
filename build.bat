@@ -1,4 +1,5 @@
 @echo off
+cd /d "%~dp0"
 echo Dang don dep thu muc build cu...
 rmdir /s /q build
 rmdir /s /q dist
