@@ -232,6 +232,13 @@ class RegistrationWorker:
                         config.STOP_FLAG = True  # Phát tín hiệu dừng toàn bộ bot
                         break
 
+                    if config.STOP_FLAG:
+                        log.warning("🛑 Nhận lệnh STOP, huỷ bỏ xử lý lỗi và thoát luồng.")
+                        result_data["status"] = "ABORTED"
+                        result_data["error_details"] = "Dừng đột ngột"
+                        self.proxy_pool.mark_used(proxy_idx)
+                        break
+                        
                     # ─── Phân loại lỗi: KHÔNG RETRY vs CÓ THỂ RETRY ───
                     NO_RETRY_KEYWORDS = [
                         "EMAIL_ALREADY_IN_USE",          # Email đã đăng ký rồi
