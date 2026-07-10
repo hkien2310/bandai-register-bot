@@ -306,7 +306,7 @@ class XlsxConnection:
                         if key in col_map:
                             col_num = col_map[key]
                             existing = ws.cell(row=target_row_num, column=col_num).value
-                            if val != "" or key in ("has_bnid", "status"):
+                            if val != "" or key in ("has_bnid", "status", "error_details"):
                                 ws.cell(row=target_row_num, column=col_num, value=val)
                             elif existing is None:
                                 ws.cell(row=target_row_num, column=col_num, value="")
