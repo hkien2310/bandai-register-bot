@@ -47,6 +47,14 @@ class BrowserInstance:
         executable_path = config.BROWSER_PATH if config.BROWSER_PATH else None
         log.info(f"Profile dir: {self.profile_dir}")
 
+        base_args = [
+            "--disable-blink-features=AutomationControlled",
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--incognito",
+            "--inprivate"
+        ]
+
         if executable_path:
             log.info(f"Dùng trình duyệt tùy chỉnh: {executable_path}")
             self.context = await self.playwright.chromium.launch_persistent_context(
@@ -54,11 +62,7 @@ class BrowserInstance:
                 executable_path=executable_path,
                 headless=config.HEADLESS,
                 ignore_https_errors=True,
-                args=[
-                    "--disable-blink-features=AutomationControlled",
-                    "--no-sandbox",
-                    "--disable-setuid-sandbox",
-                ],
+                args=base_args,
                 viewport={"width": 1280, "height": 800},
                 **launch_args
             )
@@ -70,16 +74,13 @@ class BrowserInstance:
             for channel in channels_to_try:
                 try:
                     log.info(f"Đang thử khởi động với trình duyệt: {channel}")
+                    
                     self.context = await self.playwright.chromium.launch_persistent_context(
                         user_data_dir=str(self.profile_dir),
                         channel=channel,
                         headless=config.HEADLESS,
                         ignore_https_errors=True,
-                        args=[
-                            "--disable-blink-features=AutomationControlled",
-                            "--no-sandbox",
-                            "--disable-setuid-sandbox",
-                        ],
+                        args=base_args,
                         viewport={"width": 1280, "height": 800},
                         **launch_args
                     )
