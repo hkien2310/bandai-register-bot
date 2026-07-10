@@ -49,6 +49,7 @@ DATA_DIR.mkdir(exist_ok=True)
 # Bot settings
 BROWSER_PATH        = _get("browser_path", "")
 HEADLESS            = _get("headless", False)
+XLSX_PATH           = _get("xlsx_path", "")
 WORKER_COUNT        = _get("worker_count", 1)
 EMAIL_OTP_TIMEOUT   = _get("email_otp_timeout", 120)
 SMS_OTP_TIMEOUT     = _get("sms_otp_timeout", 300)

@@ -4,17 +4,13 @@ block_cipher = None
 
 import os
 datas_list = [('src', 'src')]
-if os.path.exists('data/sheet_config.json'):
-    datas_list.append(('data/sheet_config.json', 'data'))
-else:
-    print("WARNING: data/sheet_config.json not found! The build will not contain config.")
 
 a = Analysis(
     ['gui.py'],
     pathex=[],
     binaries=[],
     datas=datas_list,
-    hiddenimports=['playwright', 'requests'],
+    hiddenimports=['openpyxl', 'playwright', 'requests'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

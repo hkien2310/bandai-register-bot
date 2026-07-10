@@ -83,6 +83,9 @@ class NamcoBotGUI:
         self.default_pref_var = tk.StringVar()
         self.default_pref_var.set(cfg.get("default_prefecture", "愛知県"))
 
+        self.xlsx_path_var = tk.StringVar()
+        self.xlsx_path_var.set(cfg.get("xlsx_path", ""))
+
         # Tự động lưu cấu hình khi đóng cửa sổ app
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -120,14 +123,14 @@ class NamcoBotGUI:
         ttk.Checkbutton(chk_frame, text="Chạy ngầm (Headless)", variable=self.headless_var).pack(side=tk.LEFT, padx=10)
         ttk.Checkbutton(chk_frame, text="Dùng Proxy", variable=self.proxy_var).pack(side=tk.LEFT, padx=10)
 
-        # Các nút thao tác CSV
-        csv_frame = ttk.Frame(frame)
-        csv_frame.grid(row=6, column=0, columnspan=3, sticky=tk.W, pady=(0, 5))
-        ttk.Label(csv_frame, text="📁 Quản lý Dữ liệu (CSV):").pack(side=tk.LEFT, padx=(0, 10))
-        
-        ttk.Button(csv_frame, text="📧 Emails", command=lambda: self.open_csv("emails.csv")).pack(side=tk.LEFT, padx=2)
-        ttk.Button(csv_frame, text="🌐 Proxies", command=lambda: self.open_csv("proxies.csv")).pack(side=tk.LEFT, padx=2)
-        ttk.Button(csv_frame, text="🏆 Accounts", command=lambda: self.open_csv("accounts.csv")).pack(side=tk.LEFT, padx=2)
+        # XLSX file selector
+        xlsx_frame = ttk.Frame(frame)
+        xlsx_frame.grid(row=6, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(0, 5))
+        ttk.Label(xlsx_frame, text="📄 File dữ liệu XLSX:").pack(side=tk.LEFT)
+        self.xlsx_entry = ttk.Entry(xlsx_frame, textvariable=self.xlsx_path_var, width=40)
+        self.xlsx_entry.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        ttk.Button(xlsx_frame, text="Chọn file", command=self.choose_xlsx).pack(side=tk.LEFT, padx=2)
+        ttk.Button(xlsx_frame, text="Tạo file mẫu", command=self.create_xlsx_template).pack(side=tk.LEFT, padx=2)
 
         btn_frame = ttk.Frame(frame)
         btn_frame.grid(row=7, column=0, columnspan=3, pady=10)
@@ -156,22 +159,36 @@ class NamcoBotGUI:
         if path:
             self.browser_path_var.set(path)
 
-    def open_csv(self, filename):
-        import src.config as app_config
-        import subprocess
-        import os
-        path = app_config.DATA_DIR / filename
-        if not path.exists():
-            from src.utils.csv_manager import CsvManager
-            CsvManager()
-            
-        try:
-            if os.name == 'nt':
-                os.startfile(str(path))
-            else:
-                subprocess.call(['open', str(path)])
-        except Exception as e:
-            messagebox.showerror("Lỗi", f"Không thể mở file {filename}: {e}")
+    def choose_xlsx(self):
+        """Mở hộp thoại chọn file XLSX."""
+        path = filedialog.askopenfilename(
+            title="Chọn file dữ liệu XLSX",
+            filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")]
+        )
+        if path:
+            self.xlsx_path_var.set(path)
+            self.save_settings()
+
+    def create_xlsx_template(self):
+        """Tạo file XLSX mẫu mới tại đường dẫn do người dùng chọn."""
+        path = filedialog.asksaveasfilename(
+            title="Tạo file XLSX mẫu",
+            defaultextension=".xlsx",
+            filetypes=[("Excel files", "*.xlsx")],
+            initialfile="data_bandai.xlsx"
+        )
+        if not path:
+            return
+        from src.connections.xlsx_connection import XlsxConnection
+        ok = XlsxConnection.create_template(path)
+        if ok:
+            self.xlsx_path_var.set(path)
+            self.save_settings()
+            from tkinter import messagebox
+            messagebox.showinfo("✅ Đã tạo file mẫu", f"File mẫu đã được tạo tại:\n{path}\n\nBạn có thể mở bằng Excel để điền email vào cột A của sheet 'Mails'.")
+        else:
+            from tkinter import messagebox
+            messagebox.showerror("❌ Lỗi", "Không thể tạo file XLSX mẫu!")
 
     def update_logs(self):
         user_keywords = [
@@ -221,9 +238,21 @@ class NamcoBotGUI:
         cfg["browser_path"] = self.browser_path_var.get()
         cfg["default_dob"] = self.default_dob_var.get()
         cfg["default_prefecture"] = self.default_pref_var.get()
+        cfg["xlsx_path"] = self.xlsx_path_var.get()
         save_json_config(cfg)
 
     def start_bot(self):
+        # Kiểm tra đã chọn file XLSX chưa
+        xlsx_path = self.xlsx_path_var.get().strip()
+        if not xlsx_path:
+            from tkinter import messagebox
+            messagebox.showerror(
+                "❌ Chưa chọn file dữ liệu",
+                "Vui lòng chọn file XLSX chứa danh sách email trước khi chạy.\n"
+                "Nếu chưa có file, hãy bấm 'Tạo file mẫu' để tạo mới."
+            )
+            return
+
         # Lưu config trước
         self.save_settings()
 

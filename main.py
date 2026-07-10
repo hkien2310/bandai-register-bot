@@ -10,7 +10,7 @@ sys.path.append(str(Path(__file__).parent))
 import src.config as config
 from src.utils.logger import get_logger
 from src.utils.proxy_pool import ProxyPool
-from src.utils.csv_manager import CsvManager
+from src.connections.xlsx_connection import XlsxConnection
 from src.core.email_reader import generate_account_email
 from src.worker import RegistrationWorker
 
@@ -68,18 +68,21 @@ async def main_async():
     elif args.limit:
         log.info(f"🚧 CHẾ ĐỘ GIỚI HẠN KÍCH HOẠT: Chỉ chạy {args.limit} email.")
 
-    # 2. Khởi tạo CsvManager
-    csv_manager = CsvManager()
-    if not csv_manager.is_connected():
-        log.error("Không thể khởi tạo CSV Manager. Dừng chương trình.")
+    # 2. Khởi tạo XlsxConnection
+    if not config.XLSX_PATH:
+        log.error("❌ Chưa cấu hình đường dẫn file XLSX. Vui lòng mở GUI và chọn file XLSX trước.")
+        return
+    sheets_manager = XlsxConnection(config.XLSX_PATH)
+    if not sheets_manager.is_connected():
+        log.error("Không thể kết nối file XLSX. Kiểm tra lại đường dẫn. Dừng chương trình.")
         return
 
-    # 3. Load proxies từ CSV
+    # 3. Load proxies từ file XLSX
     if config.USE_PROXY:
-        active_proxies = csv_manager.get_active_proxies()
+        active_proxies = sheets_manager.get_active_proxies()
         proxy_pool = ProxyPool(active_proxies)
-        # Khôi phục số lần sử dụng vĩnh viễn từ CSV (account SUCCESS)
-        proxy_pool.load_permanent_counts(csv_manager)
+        # Khôi phục số lần sử dụng vĩnh viễn từ XLSX (account SUCCESS)
+        sheets_manager.load_permanent_counts(proxy_pool)
     else:
         proxy_pool = ProxyPool([])
 
@@ -96,17 +99,17 @@ async def main_async():
             log.error(f"❌ Tài khoản SMS chỉ còn {balance} điểm/yên, không đủ để thuê số (giá ~25/số). Vui lòng nạp thêm tiền!")
             sys.exit(1)
 
-    # 5. Vòng lặp chính: Đọc email PENDING từ CSV và chạy
+    # 5. Vòng lặp chính: Đọc email PENDING từ Sheets và chạy
     while True:
         if config.STOP_FLAG:
             log.warning("🛑 Người dùng đã bấm Stop, dừng vòng lặp chính.")
             break
 
         # Lấy từng mẻ email để chạy
-        emails_to_process = csv_manager.get_pending_emails(batch_size=batch_size)
+        emails_to_process = sheets_manager.get_pending_emails(batch_size=batch_size)
         
         if not emails_to_process:
-            log.info("✅ Không còn tài khoản nào có trạng thái PENDING/Trống trên CSV. Hoàn tất!")
+            log.info("✅ Không còn tài khoản nào có trạng thái PENDING/Trống trên Sheets. Hoàn tất!")
             break
 
         email_queue = Queue()
@@ -120,7 +123,7 @@ async def main_async():
         for i in range(1, worker_count + 1):
             if config.STOP_FLAG:
                 break
-            tasks.append(run_worker_async(i, email_queue, proxy_pool, csv_manager))
+            tasks.append(run_worker_async(i, email_queue, proxy_pool, sheets_manager))
             
             # Chờ 2s nhưng check STOP_FLAG
             for _ in range(4):
