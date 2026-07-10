@@ -77,6 +77,9 @@ async def main_async():
         log.error("Không thể kết nối file XLSX. Kiểm tra lại đường dẫn. Dừng chương trình.")
         return
 
+    # Auto-recover: reset PROCESSING → PENDING (các account bị dừng giữa chừng lần trước)
+    sheets_manager.reset_processing_to_pending()
+
     # 3. Load proxies từ file XLSX
     if config.USE_PROXY:
         active_proxies = sheets_manager.get_active_proxies()

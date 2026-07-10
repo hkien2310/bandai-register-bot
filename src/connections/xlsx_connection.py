@@ -65,6 +65,32 @@ class XlsxConnection:
     def is_connected(self) -> bool:
         return self._connected
 
+    def reset_processing_to_pending(self):
+        """
+        Reset tất cả email có status PROCESSING → PENDING.
+        Gọi khi khởi động bot để recover các account bị interrupt giữa chừng.
+        """
+        with self._lock:
+            try:
+                wb = openpyxl.load_workbook(str(self.xlsx_path))
+                ws = wb["Mails"]
+                headers = self._get_headers(ws)
+                status_col = self._col_index(headers, "status")
+
+                count = 0
+                for row in ws.iter_rows(min_row=2):
+                    val = str(row[status_col].value or "").strip().upper()
+                    if val == "PROCESSING":
+                        row[status_col].value = "PENDING"
+                        count += 1
+
+                if count > 0:
+                    wb.save(str(self.xlsx_path))
+                    log.info(f"♻️  Reset {count} email PROCESSING → PENDING (recover sau khi bị dừng giữa chừng).")
+                wb.close()
+            except Exception as e:
+                log.error(f"❌ Lỗi reset PROCESSING: {e}")
+
     # ──────────────────────────────────────────────────────────────────────────
     # Public: Mails sheet
     # ──────────────────────────────────────────────────────────────────────────
