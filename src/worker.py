@@ -381,12 +381,16 @@ class RegistrationWorker:
                         await page.goto(url, timeout=20000)
                         await page.wait_for_load_state("domcontentloaded")
                         await asyncio.sleep(2)
-                        text = await page.evaluate("() => document.body ? document.body.innerText : ''")
-                        log.info(f"🔍 [{url}] Page text (500 chars): {text[:500]}")
-                        # Mở rộng regex: B + 10-14 chữ số/chữ cái, hoặc số 10-14 ký tự liên tiếp
-                        m = _re.search(r'\b(?:B[A-Z0-9]{8,14}|[A-Z0-9]{10,14})\b', text)
+                        html = await page.evaluate("() => document.body ? document.body.innerHTML : ''")
+                        # BNID thường có dạng B + 12 số (vd: B999888777666) hoặc 12 số
+                        m = _re.search(r'\b(B\d{12}|\d{12})\b', html)
                         if m:
-                            return m.group(0).strip()
+                            bnid = m.group(1).strip()
+                            log.info(f"🔍 [{url}] Tìm thấy chuỗi nghi ngờ BNID trong HTML: {bnid}")
+                            return bnid
+                        else:
+                            text_preview = await page.evaluate("() => document.body ? document.body.innerText.substring(0, 300) : ''")
+                            log.info(f"🔍 [{url}] Không tìm thấy BNID. Text preview: {text_preview}")
                     except Exception as ex:
                         log.warning(f"⚠️ Lỗi truy cập {url}: {ex}")
                     return None
