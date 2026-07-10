@@ -33,6 +33,37 @@ ACCOUNTS_HEADERS = [
 ]
 PROXIES_HEADERS  = ["proxy", "status"]
 
+# Map tên cột ngoài lệ (cũ, tiếng Anh viết khác) về key chuẩn của code
+COLUMN_ALIASES = {
+    "bnid":            "bnid_user_code",
+    "bnid user code":  "bnid_user_code",
+    "has bnid":        "has_bnid",
+    "proxy used":      "proxy_used",
+    "bandai password": "bandai_password",
+    "namco password":  "namco_password",
+    "created at":      "created_at",
+    "error details":   "error_details",
+    "data usage (mb)": "data_usage_mb",
+    "dob":             "dob",
+    "location":        "prefecture",
+}
+
+# Chỉ 4 giá trị status hợp lệ hiển thị trong sheet
+_STATUS_MAP = {
+    "success":    "SUCCESS",
+    "failed":     "FAILED",
+    "processing": "PROCESSING",
+    "pending":    "PENDING",
+    # Các giá trị nội bộ → map về 4 giá trị chuẩn
+    "has_bnid":   "PENDING",
+    "aborted":    "FAILED",
+    "error":      "FAILED",
+}
+
+def _normalize_status(status: str) -> str:
+    """Chuẩn hóa status về 1 trong 4 giá trị: SUCCESS / FAILED / PROCESSING / PENDING."""
+    return _STATUS_MAP.get(str(status or "").strip().lower(), "FAILED")
+
 
 class XlsxConnection:
     """Service đọc/ghi dữ liệu từ file XLSX local. Thread-safe."""
@@ -212,7 +243,7 @@ class XlsxConnection:
                     # Match theo raw value (pipe string) hoặc chỉ phần email trước |
                     cell_email = cell_val.split("|")[0].strip()
                     if cell_val == email or cell_email == email:
-                        row[status_col].value = status
+                        row[status_col].value = _normalize_status(status)
                         break
 
                 wb.save(str(self.xlsx_path))
@@ -236,11 +267,14 @@ class XlsxConnection:
         if not email:
             return
 
-        if not data.get("created_at") and data.get("status") == "SUCCESS":
+        if not data.get("created_at") and data.get("status") in ("SUCCESS",):
             data["created_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         # Tự động set has_bnid = TRUE nếu đã có bnid_user_code
         data["has_bnid"] = "TRUE" if str(data.get("bnid_user_code", "") or "").strip() else "FALSE"
+
+        # Chuẩn hoá status → chỉ 4 giá trị: SUCCESS / FAILED / PROCESSING / PENDING
+        data["status"] = _normalize_status(data.get("status", ""))
 
         with self._lock:
             try:
@@ -432,7 +466,9 @@ class XlsxConnection:
 
     @staticmethod
     def _get_headers(ws) -> list:
-        return [str(cell.value or "").strip().lower() for cell in next(ws.iter_rows(min_row=1, max_row=1))]
+        """Trả về headers của sheet, đã áp alias về key chuẩn."""
+        raw = [str(cell.value or "").strip().lower() for cell in next(ws.iter_rows(min_row=1, max_row=1))]
+        return [COLUMN_ALIASES.get(h, h) for h in raw]
 
     @staticmethod
     def _col_index(headers: list, col_name: str) -> int:
