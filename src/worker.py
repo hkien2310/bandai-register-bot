@@ -375,22 +375,33 @@ class RegistrationWorker:
 
             # Lấy BNID từ portal nếu step 3 không bóc được
             if not result_data.get("bnid_user_code"):
-                try:
-                    log.info("🔍 Đang truy cập portal BNID để lấy User Code...")
-                    await page.goto("https://account.bandainamcoid.com/portal.html", timeout=20000)
-                    await page.wait_for_load_state("domcontentloaded")
-                    await asyncio.sleep(2)
-                    text = await page.evaluate("() => document.body ? document.body.innerText : ''")
-                    import re
-                    match = re.search(r'\b(?:B\d{12}|\d{12}|\d{4}[-\s]?\d{4}[-\s]?\d{4})\b', text)
-                    if match:
-                        bnid_code = match.group(0).strip()
-                        log.info(f"✅ Đã lấy được BNID User Code từ Portal: {bnid_code}")
-                        result_data["bnid_user_code"] = bnid_code
-                    else:
-                        log.warning("⚠️ Không tìm thấy BNID User Code trên portal.")
-                except Exception as e:
-                    log.warning(f"⚠️ Lỗi khi lấy BNID User Code: {e}")
+                import re as _re
+                async def _try_extract_bnid(url: str) -> str | None:
+                    try:
+                        await page.goto(url, timeout=20000)
+                        await page.wait_for_load_state("domcontentloaded")
+                        await asyncio.sleep(2)
+                        text = await page.evaluate("() => document.body ? document.body.innerText : ''")
+                        log.info(f"🔍 [{url}] Page text (500 chars): {text[:500]}")
+                        # Mở rộng regex: B + 10-14 chữ số/chữ cái, hoặc số 10-14 ký tự liên tiếp
+                        m = _re.search(r'\b(?:B[A-Z0-9]{8,14}|[A-Z0-9]{10,14})\b', text)
+                        if m:
+                            return m.group(0).strip()
+                    except Exception as ex:
+                        log.warning(f"⚠️ Lỗi truy cập {url}: {ex}")
+                    return None
+
+                log.info("🔍 Thử lấy BNID từ portal BNID...")
+                bnid_code = await _try_extract_bnid("https://account.bandainamcoid.com/portal.html")
+                if not bnid_code:
+                    log.info("🔍 Thử lấy BNID từ Namco Parks mypage...")
+                    bnid_code = await _try_extract_bnid("https://parks2.bandainamco-am.co.jp/member_mypage.html")
+                if bnid_code:
+                    log.info(f"✅ Đã lấy được BNID User Code: {bnid_code}")
+                    result_data["bnid_user_code"] = bnid_code
+                    self.sheets_manager.append_account(result_data)
+                else:
+                    log.warning("⚠️ Không tìm thấy BNID User Code ở cả portal lẫn mypage.")
 
             log.info(f"✅ Đăng ký thành công cho tài khoản {email}")
 
