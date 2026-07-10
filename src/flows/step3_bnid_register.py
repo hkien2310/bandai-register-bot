@@ -301,9 +301,8 @@ async def run_step3(page: Page, email: str, password: str, birthday: str, has_bn
         pass
     log.info(f"   → URL sau OTP submit: {page.url}")
 
-    # ─── BƯỚC 3.4: Xử lý các màn hình trung gian (Data collection, User Code) ───
-    bnid_user_code = None
-    log.info("6. Xử lý các màn hình trung gian sau OTP và tìm BNID User Code...")
+    # ─── BƯỚC 3.4: Xử lý các màn hình trung gian (Data collection) ───
+    log.info("6. Xử lý các màn hình trung gian sau OTP...")
     
     for step_idx in range(4):  # Quét tối đa 4 màn hình trung gian
         await human_delay(page, 1500, 3000)
@@ -311,14 +310,6 @@ async def run_step3(page: Page, email: str, password: str, birthday: str, has_bn
         try:
             current_url = page.url
             log.info(f"   - [Màn hình {step_idx + 1}] URL: {current_url}")
-            
-            # Thử quét tìm mã BNID trên trang hiện tại
-            if not bnid_user_code:
-                text = await page.evaluate("() => document.body ? document.body.innerText : ''")
-                match = re.search(r'\b(?:B\d{12}|\d{12}|\d{4}[-\s]?\d{4}[-\s]?\d{4})\b', text)
-                if match:
-                    bnid_user_code = match.group(0).strip()
-                    log.info(f"   → 🎯 TÌM THẤY BNID User Code: {bnid_user_code}")
                     
             # Nếu đã bị redirect về Namco Parks, thì ngắt vòng lặp
             if "parks2.bandainamco-am.co.jp" in current_url:
@@ -346,4 +337,4 @@ async def run_step3(page: Page, email: str, password: str, birthday: str, has_bn
             break
 
     log.info(f"   → Hoàn thành Giai đoạn đăng ký BNID. URL: {page.url}")
-    return bnid_user_code
+    return "TRUE"

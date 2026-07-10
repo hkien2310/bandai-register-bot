@@ -320,14 +320,13 @@ class RegistrationWorker:
             except Exception as e:
                 raise Exception(f"Lỗi Bước 2 (Click nút Get BNID): {str(e).split('Call log')[0].strip()}")
 
-            # Step 3: Đăng ký BNID + Nhập OTP Email + Bóc BNID User Code
+            # Step 3: Đăng ký BNID + Nhập OTP Email
             if config.STOP_FLAG: raise Exception("KeyboardInterrupt")
             try:
-                bnid_user_code = await run_step3(page, email, password, birthday, has_bnid=has_bnid_local, email_password=email_password)
-                if bnid_user_code and bnid_user_code != "ALREADY_LOGGED_IN":
-                    result_data["bnid_user_code"] = bnid_user_code
-                log.info(f"✅ Step 3 done — BNID: {bnid_user_code}")
-                # Ghi ngay vào Accounts sau khi OTP email thành công và có BNID
+                await run_step3(page, email, password, birthday, has_bnid=has_bnid_local, email_password=email_password)
+                result_data["bnid_user_code"] = "TRUE"
+                log.info(f"✅ Step 3 done — Đã qua bước OTP Email, đặt BNID = TRUE")
+                # Ghi ngay vào Accounts sau khi OTP email thành công
                 self.sheets_manager.append_account(result_data)
             except Exception as e:
                 err = str(e)
