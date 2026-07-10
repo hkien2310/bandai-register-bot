@@ -35,17 +35,7 @@ async def main_async():
     parser.add_argument("--limit", type=int, default=None, help="Giới hạn số lượng account tối đa sẽ chạy trong lần này")
     args = parser.parse_args()
 
-    # --- KIỂM TRA THỜI HẠN SỬ DỤNG (TIMEBOMB) ---
-    import datetime
-    # Hết tháng 8 có nghĩa là từ ngày 1/9/2026 trở đi sẽ không chạy được nữa
-    expiry_date = datetime.date(2026, 9, 1)
-    if datetime.date.today() >= expiry_date:
-        print("\n" + "="*50)
-        print("❌ PHẦN MỀM ĐÃ HẾT HẠN SỬ DỤNG (License Expired).")
-        print("Vui lòng liên hệ quản trị viên để gia hạn.")
-        print("="*50 + "\n")
-        sys.exit(1)
-    # --------------------------------------------
+
 
     log.info("="*50)
     log.info("🔥 BẮT ĐẦU CHẠY BOT ĐĂNG KÝ NAMCO PARKS")
