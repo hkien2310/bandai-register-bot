@@ -4,21 +4,17 @@ block_cipher = None
 
 import os
 datas_list = [('src', 'src')]
-if os.path.exists('data/credentials.json'):
-    datas_list.append(('data/credentials.json', 'data'))
-else:
-    print("WARNING: data/credentials.json not found! The build will not contain credentials.")
 if os.path.exists('data/sheet_config.json'):
     datas_list.append(('data/sheet_config.json', 'data'))
 else:
-    print("WARNING: data/sheet_config.json not found! The build will not contain secrets.")
+    print("WARNING: data/sheet_config.json not found! The build will not contain config.")
 
 a = Analysis(
     ['gui.py'],
     pathex=[],
     binaries=[],
     datas=datas_list,
-    hiddenimports=['gspread', 'playwright', 'requests', 'beautifulsoup4'],
+    hiddenimports=['playwright', 'requests'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

@@ -16,11 +16,11 @@ from src.utils.logger import get_logger, set_worker_prefix
 log = get_logger("worker")
 
 class RegistrationWorker:
-    def __init__(self, worker_id: int, email_queue: Queue, proxy_pool, sheets_manager):
+    def __init__(self, worker_id: int, email_queue: Queue, proxy_pool, csv_manager):
         self.worker_id = worker_id
         self.email_queue = email_queue
         self.proxy_pool = proxy_pool
-        self.sheets_manager = sheets_manager
+        self.csv_manager = csv_manager
 
     def run(self):
         """Hàm chạy của luồng Thread."""
@@ -96,20 +96,20 @@ class RegistrationWorker:
             }
             
             # Đánh dấu PROCESSING lên Sheet Mails ngay khi worker thực sự bắt đầu làm
-            self.sheets_manager.update_email_status(raw_email, "PROCESSING")
+            self.csv_manager.update_email_status(raw_email, "PROCESSING")
 
             if prefecture and prefecture not in VALID_PREFECTURES:
                 error_msg = f"Tỉnh thành '{prefecture}' không hợp lệ. Vui lòng nhập đúng tỉnh thành của Nhật Bản."
                 log.error(f"❌ {error_msg}")
                 result_data["status"] = "ERROR"
                 result_data["error_details"] = error_msg
-                self.sheets_manager.update_email_status(raw_email, "ERROR")
-                self.sheets_manager.append_account(result_data)
+                self.csv_manager.update_email_status(raw_email, "ERROR")
+                self.csv_manager.append_account(result_data)
                 self.queue_processor.on_task_done()
                 continue
 
             # Kiểm tra trên Sheet Accounts xem email này đã có BNID chưa
-            existing_status = self.sheets_manager.get_account_status(email)
+            existing_status = self.csv_manager.get_account_status(email)
             has_bnid_local = existing_status in ("HAS_BNID",)
             if has_bnid_local:
                 log.info(f"📋 Sheet Accounts cho thấy {email} đã có BNID (status={existing_status}). Sẽ chạy luồng LOGIN.")
@@ -184,7 +184,7 @@ class RegistrationWorker:
                 
                 # Cập nhật status lên sheet Mails (dùng raw_email để match dòng trên Sheet)
                 result_data["status"] = "PROCESSING"
-                self.sheets_manager.update_email_status(raw_email, "PROCESSING")
+                self.csv_manager.update_email_status(raw_email, "PROCESSING")
                 
                 try:
                     if config.USE_PROXY and not proxy:
@@ -202,10 +202,10 @@ class RegistrationWorker:
                         success = True
                     except asyncio.TimeoutError:
                         log.error(f"❌ Tài khoản {email} bị treo (vượt quá 5 phút). Tự động dừng luồng này và bỏ qua.")
-                        self.sheets_manager.update_email_status(raw_email, "ERROR")
+                        self.csv_manager.update_email_status(raw_email, "ERROR")
                         result_data["status"] = "ERROR"
                         result_data["error_details"] = "Timeout/Hanging"
-                        self.sheets_manager.append_account(result_data)
+                        self.csv_manager.append_account(result_data)
                     except BaseException as e:
                         raise e
                     self.proxy_pool.mark_used(proxy_idx)
@@ -284,9 +284,9 @@ class RegistrationWorker:
             self.proxy_pool.release_proxy(proxy_idx)
 
             # Kết quả cuối cùng — Ghi vào Google Sheets
-            self.sheets_manager.update_email_status(raw_email, result_data["status"])
+            self.csv_manager.update_email_status(raw_email, result_data["status"])
             if result_data["status"] != "PENDING":
-                self.sheets_manager.append_account(result_data)
+                self.csv_manager.append_account(result_data)
             self.email_queue.task_done()
             log.info(f"Kết thúc xử lý tài khoản {email}\n" + "-"*50)
 

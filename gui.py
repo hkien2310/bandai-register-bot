@@ -120,20 +120,14 @@ class NamcoBotGUI:
         ttk.Checkbutton(chk_frame, text="Chạy ngầm (Headless)", variable=self.headless_var).pack(side=tk.LEFT, padx=10)
         ttk.Checkbutton(chk_frame, text="Dùng Proxy", variable=self.proxy_var).pack(side=tk.LEFT, padx=10)
 
-        # Link Google Sheet
-        sheet_frame = ttk.Frame(frame)
-        sheet_frame.grid(row=6, column=0, columnspan=3, sticky=tk.W, pady=(0, 5))
-        ttk.Label(sheet_frame, text="📊 Google Sheet:").pack(side=tk.LEFT)
-        self.sheet_link = tk.Label(
-            sheet_frame,
-            text="(chưa cấu hình)",
-            fg="#1a73e8",
-            cursor="hand2",
-            font=("Arial", 10, "underline")
-        )
-        self.sheet_link.pack(side=tk.LEFT, padx=5)
-        self.sheet_link.bind("<Button-1>", self.open_sheet_link)
-        self._update_sheet_link()
+        # Các nút thao tác CSV
+        csv_frame = ttk.Frame(frame)
+        csv_frame.grid(row=6, column=0, columnspan=3, sticky=tk.W, pady=(0, 5))
+        ttk.Label(csv_frame, text="📁 Quản lý Dữ liệu (CSV):").pack(side=tk.LEFT, padx=(0, 10))
+        
+        ttk.Button(csv_frame, text="📧 Emails", command=lambda: self.open_csv("emails.csv")).pack(side=tk.LEFT, padx=2)
+        ttk.Button(csv_frame, text="🌐 Proxies", command=lambda: self.open_csv("proxies.csv")).pack(side=tk.LEFT, padx=2)
+        ttk.Button(csv_frame, text="🏆 Accounts", command=lambda: self.open_csv("accounts.csv")).pack(side=tk.LEFT, padx=2)
 
         btn_frame = ttk.Frame(frame)
         btn_frame.grid(row=7, column=0, columnspan=3, pady=10)
@@ -162,20 +156,22 @@ class NamcoBotGUI:
         if path:
             self.browser_path_var.set(path)
 
-    def _update_sheet_link(self):
-        """Cập nhật text link sheet dựa trên biến ẩn trong code."""
+    def open_csv(self, filename):
         import src.config as app_config
-        sheet_id = app_config.GOOGLE_SHEET_ID.strip()
-        if sheet_id and sheet_id != "PASTE_YOUR_GOOGLE_SHEET_ID_HERE":
-            self._sheet_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}"
-            self.sheet_link.config(text="Mở Google Sheet ↗", fg="#1a73e8", cursor="hand2")
-        else:
-            self._sheet_url = ""
-            self.sheet_link.config(text="(chưa cấu hình Sheet ID)", fg="#999")
-
-    def open_sheet_link(self, event=None):
-        if self._sheet_url:
-            webbrowser.open(self._sheet_url)
+        import subprocess
+        import os
+        path = app_config.DATA_DIR / filename
+        if not path.exists():
+            from src.utils.csv_manager import CsvManager
+            CsvManager()
+            
+        try:
+            if os.name == 'nt':
+                os.startfile(str(path))
+            else:
+                subprocess.call(['open', str(path)])
+        except Exception as e:
+            messagebox.showerror("Lỗi", f"Không thể mở file {filename}: {e}")
 
     def update_logs(self):
         user_keywords = [

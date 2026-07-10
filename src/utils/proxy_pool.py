@@ -36,35 +36,32 @@ class ProxyPool:
 
         log.info(f"Loaded {len(self.proxies)} proxies vào ProxyPool")
 
-    def load_permanent_counts(self, sheets_manager):
-        """Đọc sheet Accounts để đếm số lần proxy đã được dùng (SUCCESS) vĩnh viễn.
+    def load_permanent_counts(self, csv_manager):
+        """Đọc file accounts.csv để đếm số lần proxy đã được dùng (SUCCESS) vĩnh viễn.
         
         Gọi hàm này sau khi khởi tạo ProxyPool để khôi phục lịch sử sử dụng proxy.
         """
-        if not sheets_manager or not sheets_manager.is_connected():
+        if not csv_manager or not csv_manager.is_connected():
             return
         
         try:
-            all_values = sheets_manager.accounts_sheet.get_all_values()
-            if len(all_values) <= 1:
+            import csv
+            all_accounts = []
+            with csv_manager.accounts_lock:
+                with open(csv_manager.accounts_file, "r", encoding="utf-8-sig") as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        all_accounts.append(row)
+            
+            if not all_accounts:
                 return
             
-            headers = all_values[0]
-            try:
-                proxy_idx_col = headers.index("Proxy Used")
-                status_idx_col = headers.index("Status")
-            except ValueError:
-                log.warning("Không tìm thấy cột 'Proxy Used' hoặc 'Status' trong sheet Accounts")
-                return
-            
-            # Đếm số lần mỗi proxy raw string đã dùng cho account SUCCESS
             proxy_success_map = {}
-            for row in all_values[1:]:
-                if len(row) > max(proxy_idx_col, status_idx_col):
-                    proxy_raw = row[proxy_idx_col].strip()
-                    status = row[status_idx_col].strip().upper()
-                    if proxy_raw and status == "SUCCESS":
-                        proxy_success_map[proxy_raw] = proxy_success_map.get(proxy_raw, 0) + 1
+            for row in all_accounts:
+                proxy_raw = row.get("Proxy Used", "").strip()
+                status = row.get("Status", "").strip().upper()
+                if proxy_raw and status == "SUCCESS":
+                    proxy_success_map[proxy_raw] = proxy_success_map.get(proxy_raw, 0) + 1
             
             # Map proxy raw string về proxy index trong pool
             with self.lock:
@@ -80,11 +77,10 @@ class ProxyPool:
             
             total_permanent = sum(proxy_success_map.values())
             if total_permanent > 0:
-                log.info(f"   [Proxy Pool] Đã khôi phục {total_permanent} lượt sử dụng vĩnh viễn từ Google Sheets.")
+                log.info(f"   [Proxy Pool] Đã khôi phục {total_permanent} lượt sử dụng vĩnh viễn từ CSV accounts.")
                 
         except Exception as e:
-            log.error(f"Lỗi đọc lịch sử proxy từ Sheets: {e}")
-
+            log.error(f"Lỗi đọc lịch sử proxy từ CSV: {e}")
     def parse_proxy_string(self, proxy_str: str) -> dict | None:
         """
         Parse proxy string sang dict chuẩn Playwright.

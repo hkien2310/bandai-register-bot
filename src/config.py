@@ -42,16 +42,6 @@ else:
 def _get(key, default=""):
     return _cfg.get(key, default)
 
-# Load secrets from data/sheet_config.json (will be bundled by PyInstaller)
-APP_SECRETS_FILE = BUNDLE_DIR / "data" / "sheet_config.json"
-app_secrets = {}
-if APP_SECRETS_FILE.exists():
-    try:
-        with open(APP_SECRETS_FILE, "r", encoding="utf-8") as f:
-            app_secrets = json.load(f)
-    except Exception as e:
-        print(f"Lỗi đọc sheet_config.json: {e}")
-
 # Paths
 DATA_DIR = ROOT_DIR / "data"
 DATA_DIR.mkdir(exist_ok=True)
@@ -59,7 +49,6 @@ DATA_DIR.mkdir(exist_ok=True)
 # Bot settings
 BROWSER_PATH        = _get("browser_path", "")
 HEADLESS            = _get("headless", False)
-GOOGLE_SHEET_ID     = app_secrets.get("GOOGLE_SHEET_ID", "18qwM6DmmQ9c8S0PoY1ureJqMo3UOBkQfDUBy3lOr3EE")
 WORKER_COUNT        = _get("worker_count", 1)
 EMAIL_OTP_TIMEOUT   = _get("email_otp_timeout", 120)
 SMS_OTP_TIMEOUT     = _get("sms_otp_timeout", 300)
