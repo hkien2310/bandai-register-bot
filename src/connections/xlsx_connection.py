@@ -72,6 +72,15 @@ class XlsxConnection:
     def get_pending_emails(self, batch_size: int = 50) -> list:
         """
         Đọc tối đa `batch_size` email có status PENDING (hoặc ô trống) từ sheet Mails.
+
+        Cột email hỗ trợ 2 format:
+          - Chỉ email:               user@hotmail.com
+          - Pipe-separated (1 cột):  user@hotmail.com|password|token|uuid
+            Field 1: email
+            Field 2: email_password
+            Field 3: ms_token (Microsoft refresh token, tùy chọn)
+            Field 4: ms_uuid  (Microsoft account UUID, tùy chọn)
+
         Trả về list[dict].
         """
         with self._lock:
@@ -85,15 +94,24 @@ class XlsxConnection:
                     if len(results) >= batch_size:
                         break
                     row_dict = dict(zip(headers, row))
-                    email = str(row_dict.get("email", "") or "").strip()
-                    if not email:
+                    raw_email_cell = str(row_dict.get("email", "") or "").strip()
+                    if not raw_email_cell:
                         continue
                     status = str(row_dict.get("status", "") or "").strip().upper()
                     if status in ("", "PENDING"):
+                        # Parse pipe-separated format
+                        parts = raw_email_cell.split("|")
+                        email         = parts[0].strip()
+                        email_password = parts[1].strip() if len(parts) > 1 else str(row_dict.get("email_password", "") or "").strip()
+                        ms_token      = parts[2].strip() if len(parts) > 2 else ""
+                        ms_uuid       = parts[3].strip() if len(parts) > 3 else ""
+
                         results.append({
                             "email": email,
-                            "raw_email": email,
-                            "email_password": str(row_dict.get("email_password", "") or "").strip(),
+                            "raw_email": raw_email_cell,  # giữ nguyên giá trị gốc để update status
+                            "email_password": email_password,
+                            "ms_token": ms_token,
+                            "ms_uuid": ms_uuid,
                             "dob": str(row_dict.get("dob", "") or "").strip(),
                             "prefecture": str(row_dict.get("prefecture", "") or "").strip(),
                             "nickname": str(row_dict.get("nickname", "") or "").strip(),
@@ -105,8 +123,12 @@ class XlsxConnection:
                 log.error(f"❌ Lỗi đọc email từ XLSX: {e}")
                 return []
 
+
     def update_email_status(self, email: str, status: str):
-        """Cập nhật cột status trong sheet Mails theo email."""
+        """
+        Cập nhật cột status trong sheet Mails.
+        Tìm dòng theo email (hoặc raw pipe string nếu truyền vào).
+        """
         email = str(email or "").strip()
         if not email:
             return
@@ -119,8 +141,10 @@ class XlsxConnection:
                 email_col  = self._col_index(headers, "email")
 
                 for row in ws.iter_rows(min_row=2):
-                    cell_email = str(row[email_col].value or "").strip()
-                    if cell_email == email:
+                    cell_val = str(row[email_col].value or "").strip()
+                    # Match theo raw value (pipe string) hoặc chỉ phần email trước |
+                    cell_email = cell_val.split("|")[0].strip()
+                    if cell_val == email or cell_email == email:
                         row[status_col].value = status
                         break
 
@@ -129,6 +153,7 @@ class XlsxConnection:
                 log.debug(f"📝 Cập nhật status '{status}' cho: {email}")
             except Exception as e:
                 log.error(f"❌ Lỗi cập nhật email status: {e}")
+
 
     # ──────────────────────────────────────────────────────────────────────────
     # Public: Accounts sheet
