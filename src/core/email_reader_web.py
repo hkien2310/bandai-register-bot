@@ -29,12 +29,23 @@ async def prepare_outlook_tab(context: BrowserContext, target_email: str, target
         
         next_btn_sel = "input[id='idSIButton9'], button[type='submit'], button[data-testid='primaryButton']"
         
-        # Check if we need to login
+        # Check if we need to login or if we are at "Pick an account" screen
+        is_login = False
         try:
-            await mail_page.wait_for_selector("input[type='email'], input[name='loginfmt']", timeout=60000)
+            # Chờ ngắn 10s để xem có ra form email không
+            await mail_page.wait_for_selector("input[type='email'], input[name='loginfmt']", timeout=10000)
             is_login = True
         except:
-            is_login = False
+            # Nếu không thấy form email, thử tìm nút "Use another account"
+            try:
+                other_acc = mail_page.locator("#otherTile, #otherTileText").first
+                if await other_acc.is_visible(timeout=2000):
+                    await other_acc.click()
+                    await mail_page.wait_for_selector("input[type='email'], input[name='loginfmt']", timeout=10000)
+                    is_login = True
+            except:
+                is_login = False
+        
             
         if is_login:
             # 2. Fill email
@@ -48,10 +59,30 @@ async def prepare_outlook_tab(context: BrowserContext, target_email: str, target
             await mail_page.locator(next_btn_sel).first.click()
             await mail_page.wait_for_timeout(3000)
             
-            # Check "Stay signed in?" screen
-            if await mail_page.locator(next_btn_sel).count() > 0:
-                await mail_page.locator(next_btn_sel).first.click()
-                await mail_page.wait_for_timeout(2000)
+            # 4. Xử lý các màn hình trung gian (Đòi thêm mail xác thực, Cập nhật bảo mật, Stay signed in...)
+            for _ in range(4):
+                try:
+                    # Nút bỏ qua (Skip for now, Cancel, No thanks)
+                    skip_sel = "a[id='iCancel'], input[id='iCancel'], button[id='iCancel'], a[id='btnAskLater'], button[id='btnAskLater'], a[id='iShowSkip']"
+                    if await mail_page.locator(skip_sel).count() > 0:
+                        btn = mail_page.locator(skip_sel).first
+                        if await btn.is_visible():
+                            log.info(f"[{target_email}] Bấm nút Skip/Cancel màn hình xác thực...")
+                            await btn.click()
+                            await mail_page.wait_for_timeout(2000)
+                            continue
+
+                    # Nút tiếp tục (Stay signed in, Next)
+                    if await mail_page.locator(next_btn_sel).count() > 0:
+                        btn = mail_page.locator(next_btn_sel).first
+                        if await btn.is_visible():
+                            log.info(f"[{target_email}] Bấm nút Next/Stay Signed In...")
+                            await btn.click()
+                            await mail_page.wait_for_timeout(2000)
+                            continue
+                except:
+                    pass
+                await mail_page.wait_for_timeout(1000)
                 
         # 4. Navigate directly to Outlook mail (kích hoạt mailbox)
         log.info(f"[{target_email}] Navigating to Outlook Mail to initialize mailbox...")
