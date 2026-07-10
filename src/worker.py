@@ -97,6 +97,8 @@ class RegistrationWorker:
             
             # Đánh dấu PROCESSING lên Sheet Mails ngay khi worker thực sự bắt đầu làm
             self.sheets_manager.update_email_status(raw_email, "PROCESSING")
+            # Ghi record ban đầu vào Accounts ngay để hiện thị kết quả real-time
+            self.sheets_manager.append_account(result_data)
 
             if prefecture and prefecture not in VALID_PREFECTURES:
                 error_msg = f"Tỉnh thành '{prefecture}' không hợp lệ. Vui lòng nhập đúng tỉnh thành của Nhật Bản."
@@ -283,10 +285,9 @@ class RegistrationWorker:
             # MỞ KHÓA proxy sau khi xử lý xong account (dù thành công hay thất bại)
             self.proxy_pool.release_proxy(proxy_idx)
 
-            # Kết quả cuối cùng — Ghi vào Google Sheets
+            # Kết quả cuối cùng — luôn ghi vào Accounts (upsert)
             self.sheets_manager.update_email_status(raw_email, result_data["status"])
-            if result_data["status"] != "PENDING":
-                self.sheets_manager.append_account(result_data)
+            self.sheets_manager.append_account(result_data)
             self.email_queue.task_done()
             log.info(f"Kết thúc xử lý tài khoản {email}\n" + "-"*50)
 
@@ -326,7 +327,8 @@ class RegistrationWorker:
                 if bnid_user_code and bnid_user_code != "ALREADY_LOGGED_IN":
                     result_data["bnid_user_code"] = bnid_user_code
                 log.info(f"✅ Step 3 done — BNID: {bnid_user_code}")
-                # (Không cần append giữa chừng lên Sheets để tránh rác data)
+                # Ghi ngay vào Accounts sau khi OTP email thành công và có BNID
+                self.sheets_manager.append_account(result_data)
             except Exception as e:
                 err = str(e)
                 if "Không nhận được OTP email" in err:
