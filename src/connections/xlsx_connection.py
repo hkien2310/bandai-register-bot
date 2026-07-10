@@ -260,8 +260,7 @@ class XlsxConnection:
     def append_account(self, data: dict):
         """
         Upsert kết quả vào sheet Accounts theo email.
-        - Ghi theo TÊN CỘT (không theo vị trí) nên hoạt động đúng với mọi cấu trúc sheet.
-        - Tự thêm cột còn thiếu (vd: has_bnid) vào sheet nếu chưa có.
+        Dung ws.cell(row, column) de dam bao dung cot, khong bi lech.
         """
         email = str(data.get("email", "") or "").strip()
         if not email:
@@ -270,10 +269,10 @@ class XlsxConnection:
         if not data.get("created_at") and data.get("status") in ("SUCCESS",):
             data["created_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        # Tự động set has_bnid = TRUE nếu đã có bnid_user_code
+        # Tu dong set has_bnid = TRUE neu da co bnid_user_code
         data["has_bnid"] = "TRUE" if str(data.get("bnid_user_code", "") or "").strip() else "FALSE"
 
-        # Chuẩn hoá status → chỉ 4 giá trị: SUCCESS / FAILED / PROCESSING / PENDING
+        # Chuan hoa status chi 4 gia tri: SUCCESS / FAILED / PROCESSING / PENDING
         data["status"] = _normalize_status(data.get("status", ""))
 
         with self._lock:
@@ -282,41 +281,48 @@ class XlsxConnection:
                 ws = wb["Accounts"]
                 sheet_headers = self._get_headers(ws)
 
-                # Thêm cột còn thiếu vào sheet (ví dụ: has_bnid được thêm sau)
+                # Them cot con thieu (vd: has_bnid) vao cuoi sheet
                 for col_name in ACCOUNTS_HEADERS:
                     if col_name not in sheet_headers:
-                        ws.cell(row=1, column=len(sheet_headers) + 1, value=col_name)
+                        new_col_num = len(sheet_headers) + 1  # 1-indexed
+                        ws.cell(row=1, column=new_col_num, value=col_name)
                         sheet_headers.append(col_name)
 
-                email_col = self._col_index(sheet_headers, "email")
+                # col_map: ten cot -> so cot 1-indexed (chinh xac, khong phu thuoc thu tu tuple)
+                col_map = {h: idx + 1 for idx, h in enumerate(sheet_headers)}
+                email_col_num = col_map["email"]
 
-                # Tìm dòng có email trùng
-                target_row = None
+                # Tim dong co email trung
+                target_row_num = None
                 for row in ws.iter_rows(min_row=2):
-                    if str(row[email_col].value or "").strip() == email:
-                        target_row = row
+                    cell_val = str(ws.cell(row=row[0].row, column=email_col_num).value or "").strip()
+                    if cell_val == email:
+                        target_row_num = row[0].row
                         break
 
-                if target_row:
-                    # Ghi theo tên cột của sheet thực tế (tránh lệch cột)
-                    for col_idx, header in enumerate(sheet_headers):
-                        if header in data:
-                            target_row[col_idx].value = data[header] if data[header] != "" else target_row[col_idx].value or ""
-                    # Luôn ghi bnid_user_code và has_bnid nếu có giá trị mới
-                    for key in ("bnid_user_code", "has_bnid", "status", "error_details", "proxy_used", "phone"):
-                        if key in sheet_headers and key in data and (data[key] or key in ("has_bnid", "status")):
-                            target_row[sheet_headers.index(key)].value = data[key]
-                    log.info(f"📝 Cập nhật kết quả: {email} → status={data.get('status')} | has_bnid={data.get('has_bnid')} | bnid={str(data.get('bnid_user_code',''))[:12]}")
+                if target_row_num is not None:
+                    # UPDATE: dung ws.cell(row, col) de ghi dung vi tri, khong bi lech
+                    for key, val in data.items():
+                        if key in col_map:
+                            col_num = col_map[key]
+                            existing = ws.cell(row=target_row_num, column=col_num).value
+                            if val != "" or key in ("has_bnid", "status"):
+                                ws.cell(row=target_row_num, column=col_num, value=val)
+                            elif existing is None:
+                                ws.cell(row=target_row_num, column=col_num, value="")
+                    log.info(f"Update: {email} -> status={data['status']} | bnid={str(data.get('bnid_user_code',''))[:14]} | has_bnid={data['has_bnid']}")
                 else:
-                    # Insert dòng mới theo thứ tự cột THỰC TẾ của sheet
-                    new_values = [data.get(h, "") or "" for h in sheet_headers]
-                    ws.append(new_values)
-                    log.info(f"📝 Thêm mới kết quả: {email} → status={data.get('status')} | has_bnid={data.get('has_bnid')}")
+                    # INSERT: dung ws.cell(row, col) de ghi dung tung cot
+                    next_row = ws.max_row + 1
+                    for key, val in data.items():
+                        if key in col_map:
+                            ws.cell(row=next_row, column=col_map[key], value=val or "")
+                    log.info(f"Insert: {email} -> status={data['status']} | has_bnid={data['has_bnid']}")
 
                 wb.save(str(self.xlsx_path))
                 wb.close()
             except Exception as e:
-                log.error(f"❌ Lỗi ghi Accounts vào XLSX: {e}")
+                log.error(f"Loi ghi Accounts vao XLSX: {e}")
 
 
     def get_account_status(self, email: str) -> str:
