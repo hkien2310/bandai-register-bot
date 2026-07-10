@@ -29,7 +29,7 @@ log = get_logger("xlsx_connection")
 MAILS_HEADERS    = ["email", "email_password", "dob", "prefecture", "nickname", "status"]
 ACCOUNTS_HEADERS = [
     "email", "bandai_password", "namco_password", "nickname",
-    "phone", "bnid_user_code", "proxy_used", "status", "created_at", "error_details"
+    "phone", "bnid_user_code", "has_bnid", "proxy_used", "status", "created_at", "error_details"
 ]
 PROXIES_HEADERS  = ["proxy", "status"]
 
@@ -65,31 +65,72 @@ class XlsxConnection:
     def is_connected(self) -> bool:
         return self._connected
 
-    def reset_processing_to_pending(self):
+    def reset_interrupted_to_pending(self):
         """
-        Reset tất cả email có status PROCESSING → PENDING.
-        Gọi khi khởi động bot để recover các account bị interrupt giữa chừng.
+        Gọi khi khởi động bot. Thực hiện 2 việc:
+        1. Reset PROCESSING → PENDING  (bị dừng giữa chừng)
+        2. Reset FAILED → PENDING      nếu email chưa có BNID trong sheet Accounts
+           (FAILED + có BNID → giữ nguyên HAS_BNID để chạy luồng login)
         """
         with self._lock:
             try:
                 wb = openpyxl.load_workbook(str(self.xlsx_path))
-                ws = wb["Mails"]
-                headers = self._get_headers(ws)
-                status_col = self._col_index(headers, "status")
 
-                count = 0
-                for row in ws.iter_rows(min_row=2):
+                # Đọc tập hợp email đã có BNID từ sheet Accounts
+                emails_with_bnid: set = set()
+                if "Accounts" in wb.sheetnames:
+                    ws_acc = wb["Accounts"]
+                    acc_headers = self._get_headers(ws_acc)
+                    try:
+                        email_col   = self._col_index(acc_headers, "email")
+                        bnid_col    = self._col_index(acc_headers, "bnid_user_code")
+                        has_bnid_col = self._col_index(acc_headers, "has_bnid") if "has_bnid" in acc_headers else None
+                        for row in ws_acc.iter_rows(min_row=2, values_only=True):
+                            email_val = str(row[email_col] or "").strip().split("|")[0].strip()
+                            bnid_val  = str(row[bnid_col] or "").strip()
+                            has_bnid_val = str(row[has_bnid_col] or "").strip().upper() if has_bnid_col is not None else ""
+                            if bnid_val or has_bnid_val == "TRUE":
+                                emails_with_bnid.add(email_val.lower())
+                    except Exception:
+                        pass
+
+                # Xử lý sheet Mails
+                ws_mail = wb["Mails"]
+                mail_headers = self._get_headers(ws_mail)
+                status_col = self._col_index(mail_headers, "status")
+                email_col  = self._col_index(mail_headers, "email")
+
+                reset_proc = 0
+                reset_fail = 0
+                for row in ws_mail.iter_rows(min_row=2):
                     val = str(row[status_col].value or "").strip().upper()
+                    raw_cell = str(row[email_col].value or "").strip()
+                    email_plain = raw_cell.split("|")[0].strip().lower()
+
                     if val == "PROCESSING":
                         row[status_col].value = "PENDING"
-                        count += 1
+                        reset_proc += 1
+                    elif val == "FAILED":
+                        if email_plain not in emails_with_bnid:
+                            # Chưa có BNID → cho phép chạy lại
+                            row[status_col].value = "PENDING"
+                            reset_fail += 1
+                        else:
+                            # Đã có BNID → đổi sang HAS_BNID để chạy luồng login
+                            row[status_col].value = "HAS_BNID"
 
-                if count > 0:
+                if reset_proc + reset_fail > 0:
                     wb.save(str(self.xlsx_path))
-                    log.info(f"♻️  Reset {count} email PROCESSING → PENDING (recover sau khi bị dừng giữa chừng).")
+                if reset_proc:
+                    log.info(f"♻️  Reset {reset_proc} email PROCESSING → PENDING.")
+                if reset_fail:
+                    log.info(f"♻️  Reset {reset_fail} email FAILED (chưa có BNID) → PENDING để thử lại.")
                 wb.close()
             except Exception as e:
-                log.error(f"❌ Lỗi reset PROCESSING: {e}")
+                log.error(f"❌ Lỗi reset interrupted emails: {e}")
+
+    # Alias cũ để không break nếu có code nào khác gọi
+    reset_processing_to_pending = reset_interrupted_to_pending
 
     # ──────────────────────────────────────────────────────────────────────────
     # Public: Mails sheet
@@ -196,6 +237,9 @@ class XlsxConnection:
 
         if not data.get("created_at") and data.get("status") == "SUCCESS":
             data["created_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # Tự động set has_bnid = TRUE nếu đã có bnid_user_code
+        data["has_bnid"] = "TRUE" if str(data.get("bnid_user_code", "") or "").strip() else "FALSE"
 
         with self._lock:
             try:
