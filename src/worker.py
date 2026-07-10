@@ -86,7 +86,7 @@ class RegistrationWorker:
                 "bandai_password": password,
                 "namco_password": password,
                 "nickname": nickname,
-                "birthday": birthday,
+                "dob": birthday,
                 "prefecture": prefecture,
                 "phone": "",
                 "bnid_user_code": "",
