@@ -229,7 +229,8 @@ class XlsxConnection:
     def append_account(self, data: dict):
         """
         Upsert kết quả vào sheet Accounts theo email.
-        Update nếu đã có, insert nếu chưa có.
+        - Ghi theo TÊN CỘT (không theo vị trí) nên hoạt động đúng với mọi cấu trúc sheet.
+        - Tự thêm cột còn thiếu (vd: has_bnid) vào sheet nếu chưa có.
         """
         email = str(data.get("email", "") or "").strip()
         if not email:
@@ -245,29 +246,44 @@ class XlsxConnection:
             try:
                 wb = openpyxl.load_workbook(str(self.xlsx_path))
                 ws = wb["Accounts"]
-                headers = self._get_headers(ws)
-                email_col = self._col_index(headers, "email")
+                sheet_headers = self._get_headers(ws)
 
+                # Thêm cột còn thiếu vào sheet (ví dụ: has_bnid được thêm sau)
+                for col_name in ACCOUNTS_HEADERS:
+                    if col_name not in sheet_headers:
+                        ws.cell(row=1, column=len(sheet_headers) + 1, value=col_name)
+                        sheet_headers.append(col_name)
+
+                email_col = self._col_index(sheet_headers, "email")
+
+                # Tìm dòng có email trùng
                 target_row = None
                 for row in ws.iter_rows(min_row=2):
                     if str(row[email_col].value or "").strip() == email:
                         target_row = row
                         break
 
-                new_values = [data.get(h, "") or "" for h in ACCOUNTS_HEADERS]
-
                 if target_row:
-                    for i, val in enumerate(new_values):
-                        target_row[i].value = val
-                    log.info(f"📝 Cập nhật kết quả: {email} → {data.get('status')}")
+                    # Ghi theo tên cột của sheet thực tế (tránh lệch cột)
+                    for col_idx, header in enumerate(sheet_headers):
+                        if header in data:
+                            target_row[col_idx].value = data[header] if data[header] != "" else target_row[col_idx].value or ""
+                    # Luôn ghi bnid_user_code và has_bnid nếu có giá trị mới
+                    for key in ("bnid_user_code", "has_bnid", "status", "error_details", "proxy_used", "phone"):
+                        if key in sheet_headers and key in data and (data[key] or key in ("has_bnid", "status")):
+                            target_row[sheet_headers.index(key)].value = data[key]
+                    log.info(f"📝 Cập nhật kết quả: {email} → status={data.get('status')} | has_bnid={data.get('has_bnid')} | bnid={str(data.get('bnid_user_code',''))[:12]}")
                 else:
+                    # Insert dòng mới theo thứ tự cột THỰC TẾ của sheet
+                    new_values = [data.get(h, "") or "" for h in sheet_headers]
                     ws.append(new_values)
-                    log.info(f"📝 Thêm mới kết quả: {email} → {data.get('status')}")
+                    log.info(f"📝 Thêm mới kết quả: {email} → status={data.get('status')} | has_bnid={data.get('has_bnid')}")
 
                 wb.save(str(self.xlsx_path))
                 wb.close()
             except Exception as e:
                 log.error(f"❌ Lỗi ghi Accounts vào XLSX: {e}")
+
 
     def get_account_status(self, email: str) -> str:
         """Kiểm tra email đã có trong Accounts chưa, trả về status hoặc rỗng."""
