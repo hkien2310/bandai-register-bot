@@ -94,9 +94,9 @@ def check_balance(force_refresh=False) -> int:
             if not force_refresh:
                 log.info("API Key có thể đã hết hạn (qua ngày mới), thử lấy lại key mới...")
                 return check_balance(force_refresh=True)
-            log.warning(f"Lỗi kiểm tra số dư: {data}")
+            log.error(f"❌ Lỗi API SMS: {data}")
     except Exception as e:
-        log.warning(f"Không lấy được số dư: {e}")
+        log.error(f"❌ Lỗi khi lấy số dư: {e}")
     return -1
 
 def order_phone(
