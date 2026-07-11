@@ -73,7 +73,7 @@ def _get_apikey(force_refresh: bool = False) -> str:
         except Exception as e:
             log.warning(f"Không ghi được file cache apikey: {e}")
 
-        log.info(f"✅ Apikey OK (expires at: {time.strftime('%H:%M:%S', time.localtime(_apikey_expires))})")
+        log.info(f"✅ Apikey OK (expires at: {time.strftime('%H:%M:%S %d/%m/%Y', time.localtime(_apikey_expires))})")
         return _apikey
 
 def check_balance(force_refresh=False) -> int:

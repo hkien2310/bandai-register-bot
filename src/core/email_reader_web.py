@@ -20,6 +20,31 @@ def _extract_otp(text: str) -> str | None:
             return m.group(1)
     return None
 
+async def safe_wait(page: Page, ms: int) -> bool:
+    """Waits for ms milliseconds but checks STOP_FLAG every second. Returns False if stopped."""
+    import src.config as config
+    end_time = time.time() + ms / 1000.0
+    while time.time() < end_time:
+        if getattr(config, "STOP_FLAG", False):
+            return False
+        await page.wait_for_timeout(min(1000, max(1, int((end_time - time.time()) * 1000))))
+    return True
+
+async def safe_wait_for_selector(page: Page, selector: str, timeout: int = 30000) -> bool:
+    """Waits for a selector in small chunks, checking STOP_FLAG."""
+    import src.config as config
+    end_time = time.time() + timeout / 1000.0
+    while time.time() < end_time:
+        if getattr(config, "STOP_FLAG", False):
+            return False
+        try:
+            # wait 1000ms at a time
+            await page.wait_for_selector(selector, timeout=1000)
+            return True
+        except:
+            pass
+    return False
+
 async def prepare_outlook_tab(context: BrowserContext, target_email: str, target_password: str) -> Page | None:
     log.info(f"[{target_email}] Preparing Outlook tab (Pre-login)...")
     mail_page = await context.new_page()
@@ -27,40 +52,45 @@ async def prepare_outlook_tab(context: BrowserContext, target_email: str, target
         # 1. Navigate to login.live.com
         await mail_page.goto("https://login.live.com/")
         
-        next_btn_sel = "input[id='idSIButton9'], button[type='submit'], button[data-testid='primaryButton']"
-        
-        # Check if we need to login or if we are at "Pick an account" screen
+        next_btn_sel = "input[id='idSIButton9'], button[type='submit'], button[data-testid='primaryButton']"        # Check if we need to login or if we are at "Pick an account" screen
         is_login = False
         try:
             # Chờ ngắn 10s để xem có ra form email không
-            await mail_page.wait_for_selector("input[type='email'], input[name='loginfmt']", timeout=10000)
-            is_login = True
+            if await safe_wait_for_selector(mail_page, "input[type='email'], input[name='loginfmt']", timeout=10000):
+                is_login = True
+            else:
+                raise Exception("Not found")
         except:
             # Nếu không thấy form email, thử tìm nút "Use another account"
             try:
                 other_acc = mail_page.locator("#otherTile, #otherTileText").first
                 if await other_acc.is_visible(timeout=2000):
                     await other_acc.click()
-                    await mail_page.wait_for_selector("input[type='email'], input[name='loginfmt']", timeout=10000)
-                    is_login = True
+                    if await safe_wait_for_selector(mail_page, "input[type='email'], input[name='loginfmt']", timeout=10000):
+                        is_login = True
             except:
                 is_login = False
         
+        import src.config as config
+        if getattr(config, "STOP_FLAG", False):
+            return None
             
         if is_login:
             # 2. Fill email
             await mail_page.fill("input[type='email'], input[name='loginfmt']", target_email)
             await mail_page.locator(next_btn_sel).first.click()
-            await mail_page.wait_for_timeout(2000)
+            if not await safe_wait(mail_page, 2000): return None
             
             # 3. Fill password
-            await mail_page.wait_for_selector("input[type='password'], input[name='passwd']", timeout=60000)
+            if not await safe_wait_for_selector(mail_page, "input[type='password'], input[name='passwd']", timeout=60000):
+                if getattr(config, "STOP_FLAG", False): return None
             await mail_page.fill("input[type='password'], input[name='passwd']", target_password)
             await mail_page.locator(next_btn_sel).first.click()
-            await mail_page.wait_for_timeout(3000)
+            if not await safe_wait(mail_page, 3000): return None
             
             # 4. Xử lý các màn hình trung gian (Đòi thêm mail xác thực, Cập nhật bảo mật, Stay signed in...)
             for _ in range(4):
+                if getattr(config, "STOP_FLAG", False): return None
                 try:
                     # Nút bỏ qua (Skip for now, Cancel, No thanks)
                     skip_sel = "a[id='iCancel'], input[id='iCancel'], button[id='iCancel'], a[id='btnAskLater'], button[id='btnAskLater'], a[id='iShowSkip']"
@@ -69,20 +99,21 @@ async def prepare_outlook_tab(context: BrowserContext, target_email: str, target
                         if await btn.is_visible():
                             log.info(f"[{target_email}] Bấm nút Skip/Cancel màn hình xác thực...")
                             await btn.click()
-                            await mail_page.wait_for_timeout(2000)
+                            if not await safe_wait(mail_page, 2000): return None
                             continue
 
                     # Nút tiếp tục (Stay signed in, Next)
-                    if await mail_page.locator(next_btn_sel).count() > 0:
-                        btn = mail_page.locator(next_btn_sel).first
+                    next_sel = "input[id='idSIButton9'], button[type='submit'], button[data-testid='primaryButton']"
+                    if await mail_page.locator(next_sel).count() > 0:
+                        btn = mail_page.locator(next_sel).first
                         if await btn.is_visible():
-                            log.info(f"[{target_email}] Bấm nút Next/Stay Signed In...")
+                            log.info(f"[{target_email}] Bấm nút Tiếp tục/Stay signed in...")
                             await btn.click()
-                            await mail_page.wait_for_timeout(2000)
+                            if not await safe_wait(mail_page, 2000): return None
                             continue
                 except:
                     pass
-                await mail_page.wait_for_timeout(1000)
+                if not await safe_wait(mail_page, 1500): return None
                 
         # 4. Navigate directly to Outlook mail (kích hoạt mailbox)
         log.info(f"[{target_email}] Navigating to Outlook Mail to initialize mailbox...")
@@ -92,12 +123,13 @@ async def prepare_outlook_tab(context: BrowserContext, target_email: str, target
         log.info(f"[{target_email}] Waiting for Outlook loading screen to finish...")
         try:
             # Đợi một phần tử đặc trưng của inbox hiển thị (thường là thanh tìm kiếm hoặc danh sách email)
-            await mail_page.wait_for_selector("input#topSearchInput, div[aria-label='Message list'], div[role='main']", timeout=30000)
+            if not await safe_wait_for_selector(mail_page, "input#topSearchInput, div[aria-label='Message list'], div[role='main']", timeout=30000):
+                if getattr(config, "STOP_FLAG", False): return None
         except:
             pass
             
         # Thêm một chút delay cứng để server MS "thở" và sẵn sàng nhận mail
-        await mail_page.wait_for_timeout(8000)
+        if not await safe_wait(mail_page, 8000): return None
         
         return mail_page
     except Exception as e:
@@ -129,6 +161,10 @@ async def get_bandai_namco_otp_web(
         
         deadline = time.time() + timeout
         while time.time() < deadline:
+            if getattr(config, "STOP_FLAG", False):
+                log.info(f"🛑 Bị dừng ép buộc trong lúc chờ OTP của {target_email}!")
+                return None
+                
             try:
                 loc = mail_page.locator("text=/Bandai|バンダイナムコ|banapassport/i").first
                 if await loc.count() > 0 and await loc.is_visible():
