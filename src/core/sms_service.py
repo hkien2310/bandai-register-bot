@@ -14,7 +14,7 @@ _apikey: str = ""
 _apikey_expires: float = 0.0
 _apikey_lock = threading.Lock()
 
-def _get_apikey() -> str:
+def _get_apikey(force_refresh: bool = False) -> str:
     """Get apikey from cache or API. Thread-safe."""
     global _apikey, _apikey_expires
     
@@ -25,25 +25,26 @@ def _get_apikey() -> str:
     with _apikey_lock:
         now = time.time()
         
-        # 1. Memory cache check
-        if _apikey and now < _apikey_expires - 300:
-            return _apikey
+        if not force_refresh:
+            # 1. Memory cache check
+            if _apikey and now < _apikey_expires - 300:
+                return _apikey
 
-        # 2. Disk cache check
-        cache_path = config.DATA_DIR / "sms_apikey.json"
-        if cache_path.exists():
-            try:
-                with open(cache_path, "r", encoding="utf-8") as f:
-                    cache_data = json.load(f)
-                file_key = cache_data.get("apikey")
-                file_expires = cache_data.get("expires_at", 0.0)
-                
-                if file_key and now < file_expires - 300:
-                    _apikey = file_key
-                    _apikey_expires = file_expires
-                    return _apikey
-            except Exception as e:
-                log.warning(f"Không đọc được file cache apikey: {e}")
+            # 2. Disk cache check
+            cache_path = config.DATA_DIR / "sms_apikey.json"
+            if cache_path.exists():
+                try:
+                    with open(cache_path, "r", encoding="utf-8") as f:
+                        cache_data = json.load(f)
+                    file_key = cache_data.get("apikey")
+                    file_expires = cache_data.get("expires_at", 0.0)
+                    
+                    if file_key and now < file_expires - 300:
+                        _apikey = file_key
+                        _apikey_expires = file_expires
+                        return _apikey
+                except Exception as e:
+                    log.warning(f"Không đọc được file cache apikey: {e}")
 
         # 3. Request new apikey
         if not config.SMS_USERNAME or not config.SMS_PASSWORD:
@@ -75,10 +76,10 @@ def _get_apikey() -> str:
         log.info(f"✅ Apikey OK (expires at: {time.strftime('%H:%M:%S', time.localtime(_apikey_expires))})")
         return _apikey
 
-def check_balance() -> int:
+def check_balance(force_refresh=False) -> int:
     """Check SMS API balance."""
     try:
-        apikey = _get_apikey()
+        apikey = _get_apikey(force_refresh=force_refresh)
         resp = requests.get(
             f"{_BASE}/api/ext/balance",
             params={"apikey": apikey},
@@ -89,6 +90,11 @@ def check_balance() -> int:
             balance = data["balance"]
             log.info(f"💰 Số dư SMS: {balance:,} điểm/yên")
             return balance
+        else:
+            if not force_refresh:
+                log.info("API Key có thể đã hết hạn (qua ngày mới), thử lấy lại key mới...")
+                return check_balance(force_refresh=True)
+            log.warning(f"Lỗi kiểm tra số dư: {data}")
     except Exception as e:
         log.warning(f"Không lấy được số dư: {e}")
     return -1
@@ -101,21 +107,28 @@ def order_phone(
     """
     Order phone number. Poll until phone number is ready.
     """
-    apikey = _get_apikey()
-    params = {
-        "apikey":    apikey,
-        "serviceId": service_id or config.SMS_SERVICE_ID,
-        "server":    server     or config.SMS_SERVER,
-        "country":   country    or config.SMS_COUNTRY,
-    }
-    log.info(f"📱 Order phone | country={params['country']} serviceId={params['serviceId']}")
+    def _do_order(force=False):
+        apikey = _get_apikey(force_refresh=force)
+        params = {
+            "apikey":    apikey,
+            "serviceId": service_id or config.SMS_SERVICE_ID,
+            "server":    server     or config.SMS_SERVER,
+            "country":   country    or config.SMS_COUNTRY,
+        }
+        resp = requests.get(f"{_BASE}/api/ext/order", params=params, timeout=15)
+        resp.raise_for_status()
+        return resp.json(), params
 
-    resp = requests.get(f"{_BASE}/api/ext/order", params=params, timeout=15)
-    resp.raise_for_status()
-    data = resp.json()
+    log.info(f"📱 Order phone | country={country or config.SMS_COUNTRY} serviceId={service_id or config.SMS_SERVICE_ID}")
+    data, params = _do_order()
 
     if data.get("status") != "success":
-        raise RuntimeError(f"order thất bại: {data.get('message', data)}")
+        log.info(f"order thất bại ({data.get('message')}). Thử lấy lại API key mới...")
+        data, params = _do_order(force=True)
+        if data.get("status") != "success":
+            raise RuntimeError(f"order thất bại: {data.get('message', data)}")
+    
+    apikey = params["apikey"]
 
     pkey = data["pkey"]
     phone = data.get("phone", "").strip()
