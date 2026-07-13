@@ -48,14 +48,13 @@ COLUMN_ALIASES = {
     "location":        "prefecture",
 }
 
-# Chỉ 4 giá trị status hợp lệ hiển thị trong sheet
+# Chỉ các giá trị status hợp lệ hiển thị trong sheet
 _STATUS_MAP = {
     "success":    "SUCCESS",
     "failed":     "FAILED",
     "processing": "PROCESSING",
     "pending":    "PENDING",
-    # Các giá trị nội bộ → map về 4 giá trị chuẩn
-    "has_bnid":   "PENDING",
+    "has_bnid":   "HAS_BNID",
     "aborted":    "FAILED",
     "error":      "FAILED",
 }
@@ -269,11 +268,14 @@ class XlsxConnection:
         if not data.get("created_at") and data.get("status") in ("SUCCESS",):
             data["created_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        # Tu dong set has_bnid = TRUE neu da co bnid_user_code
-        data["has_bnid"] = "TRUE" if str(data.get("bnid_user_code", "") or "").strip() else "FALSE"
-
-        # Chuan hoa status chi 4 gia tri: SUCCESS / FAILED / PROCESSING / PENDING
+        # Chuan hoa status chi cac gia tri hop le: SUCCESS / FAILED / PROCESSING / PENDING / HAS_BNID
         data["status"] = _normalize_status(data.get("status", ""))
+        
+        # Tu dong set has_bnid = TRUE neu da co bnid_user_code hoac status la HAS_BNID
+        if str(data.get("bnid_user_code", "") or "").strip() or data["status"] == "HAS_BNID":
+            data["has_bnid"] = "TRUE"
+        else:
+            data["has_bnid"] = "FALSE"
 
         with self._lock:
             try:
