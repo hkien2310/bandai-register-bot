@@ -49,11 +49,15 @@ class BrowserInstance:
 
         base_args = [
             "--disable-blink-features=AutomationControlled",
+            "--disable-infobars",
             "--no-sandbox",
             "--disable-setuid-sandbox",
-            "--incognito",
+            "--disable-dev-shm-usage",
             "--inprivate"
         ]
+
+        if config.HEADLESS:
+            base_args.append("--headless=new")
 
         self.browser = None
         if executable_path:
