@@ -57,7 +57,7 @@ class BrowserInstance:
         ]
 
         if config.HEADLESS:
-            base_args.append("--headless=new")
+            base_args.extend(["--headless=new", "--window-position=-32000,-32000"])
 
         self.browser = None
         if executable_path:
