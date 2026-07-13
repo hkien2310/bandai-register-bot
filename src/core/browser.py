@@ -68,8 +68,8 @@ class BrowserInstance:
             )
         else:
             import platform
-            # Thử Edge trước trên Windows, Chrome trước trên Mac/Linux
-            channels_to_try = ["msedge", "chrome"] if platform.system() == "Windows" else ["chrome", "msedge"]
+            # Thử Chrome trước trên mọi hệ điều hành, Edge làm dự phòng
+            channels_to_try = ["chrome", "msedge"]
             
             for channel in channels_to_try:
                 try:
