@@ -55,19 +55,16 @@ class BrowserInstance:
             "--inprivate"
         ]
 
+        self.browser = None
         if executable_path:
             log.info(f"Dùng trình duyệt tùy chỉnh: {executable_path}")
-            self.context = await self.playwright.chromium.launch_persistent_context(
-                user_data_dir=str(self.profile_dir),
+            self.browser = await self.playwright.chromium.launch(
                 executable_path=executable_path,
                 headless=config.HEADLESS,
-                ignore_https_errors=True,
                 args=base_args,
-                viewport={"width": 1280, "height": 800},
                 **launch_args
             )
         else:
-            import platform
             # Thử Chrome trước trên mọi hệ điều hành, Edge làm dự phòng
             channels_to_try = ["chrome", "msedge"]
             
@@ -75,13 +72,10 @@ class BrowserInstance:
                 try:
                     log.info(f"Đang thử khởi động với trình duyệt: {channel}")
                     
-                    self.context = await self.playwright.chromium.launch_persistent_context(
-                        user_data_dir=str(self.profile_dir),
+                    self.browser = await self.playwright.chromium.launch(
                         channel=channel,
                         headless=config.HEADLESS,
-                        ignore_https_errors=True,
                         args=base_args,
-                        viewport={"width": 1280, "height": 800},
                         **launch_args
                     )
                     log.info(f"✅ Khởi động thành công với: {channel}")
@@ -89,8 +83,13 @@ class BrowserInstance:
                 except Exception as e:
                     log.warning(f"⚠️ Không thể khởi động bằng {channel}: {e}")
             
-            if not self.context:
+            if not self.browser:
                 raise Exception("Không tìm thấy Chrome hay Edge trên máy! Vui lòng cài đặt ít nhất một trong hai.")
+
+        self.context = await self.browser.new_context(
+            ignore_https_errors=True,
+            viewport={"width": 1280, "height": 800}
+        )
 
         page = self.context.pages[0] if self.context.pages else await self.context.new_page()
         # Đặt timeout mặc định 90s cho môi trường proxy chậm
@@ -159,6 +158,13 @@ class BrowserInstance:
             except Exception as e:
                 log.warning(f"Lỗi khi đóng context: {e}")
             self.context = None
+
+        if hasattr(self, 'browser') and self.browser:
+            try:
+                await asyncio.wait_for(self.browser.close(), timeout=10.0)
+            except Exception as e:
+                log.warning(f"Lỗi khi đóng browser: {e}")
+            self.browser = None
 
         if self.playwright:
             try:
