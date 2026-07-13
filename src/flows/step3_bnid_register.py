@@ -270,9 +270,14 @@ async def run_step3(page: Page, email: str, password: str, birthday: str, has_bn
     )
 
     if not email_otp:
-        sc_path = str(config.DATA_DIR / f"err_email_otp_{int(time.time())}.png")
-        await page.screenshot(path=sc_path)
-        raise TimeoutError(f"Không nhận được OTP email sau {config.EMAIL_OTP_TIMEOUT}s! Screenshot: {sc_path}")
+        if not config.STOP_FLAG:
+            sc_path = str(config.DATA_DIR / f"err_email_otp_{int(time.time())}.png")
+            try:
+                import asyncio
+                await asyncio.wait_for(page.screenshot(path=sc_path), timeout=5.0)
+            except Exception:
+                pass
+        raise TimeoutError(f"Không nhận được OTP email sau {config.EMAIL_OTP_TIMEOUT}s!")
 
     # Đưa focus quay lại tab Bandai Namco để điền OTP cho người dùng thấy
     await page.bring_to_front()

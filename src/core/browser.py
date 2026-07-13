@@ -58,10 +58,13 @@ class BrowserInstance:
         self.browser = None
         if executable_path:
             log.info(f"Dùng trình duyệt tùy chỉnh: {executable_path}")
-            self.browser = await self.playwright.chromium.launch(
+            self.context = await self.playwright.chromium.launch_persistent_context(
+                user_data_dir=self.profile_dir,
                 executable_path=executable_path,
                 headless=config.HEADLESS,
                 args=base_args,
+                ignore_https_errors=True,
+                viewport={"width": 1280, "height": 800},
                 **launch_args
             )
         else:
@@ -72,10 +75,13 @@ class BrowserInstance:
                 try:
                     log.info(f"Đang thử khởi động với trình duyệt: {channel}")
                     
-                    self.browser = await self.playwright.chromium.launch(
+                    self.context = await self.playwright.chromium.launch_persistent_context(
+                        user_data_dir=self.profile_dir,
                         channel=channel,
                         headless=config.HEADLESS,
                         args=base_args,
+                        ignore_https_errors=True,
+                        viewport={"width": 1280, "height": 800},
                         **launch_args
                     )
                     log.info(f"✅ Khởi động thành công với: {channel}")
@@ -83,13 +89,8 @@ class BrowserInstance:
                 except Exception as e:
                     log.warning(f"⚠️ Không thể khởi động bằng {channel}: {e}")
             
-            if not self.browser:
+            if not self.context:
                 raise Exception("Không tìm thấy Chrome hay Edge trên máy! Vui lòng cài đặt ít nhất một trong hai.")
-
-        self.context = await self.browser.new_context(
-            ignore_https_errors=True,
-            viewport={"width": 1280, "height": 800}
-        )
 
         page = self.context.pages[0] if self.context.pages else await self.context.new_page()
         # Đặt timeout mặc định 90s cho môi trường proxy chậm

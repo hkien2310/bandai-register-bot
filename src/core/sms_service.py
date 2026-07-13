@@ -37,7 +37,16 @@ def _get_apikey(force_refresh: bool = False) -> str:
                     with open(cache_path, "r", encoding="utf-8") as f:
                         cache_data = json.load(f)
                     file_key = cache_data.get("apikey")
-                    file_expires = cache_data.get("expires_at", 0.0) / 1000.0  # Convert to seconds
+                    file_expires_raw = cache_data.get("expires_at", 0.0)
+                    if isinstance(file_expires_raw, str):
+                        try:
+                            import datetime
+                            dt = datetime.datetime.strptime(file_expires_raw, "%H:%M:%S %d/%m/%Y")
+                            file_expires = dt.timestamp()
+                        except:
+                            file_expires = time.time() + 31536000
+                    else:
+                        file_expires = file_expires_raw / 1000.0  # Convert to seconds
                     
                     if file_key and now < file_expires - 300:
                         _apikey = file_key
@@ -67,13 +76,18 @@ def _get_apikey(force_refresh: bool = False) -> str:
         
         try:
             config.DATA_DIR.mkdir(parents=True, exist_ok=True)
+            # Lưu file_expires dưới dạng string như user muốn
+            expires_str = time.strftime('%H:%M:%S %d/%m/%Y', time.localtime(_apikey_expires))
+            # Loại bỏ số 0 ở tháng/ngày nếu có để giống 12/7/2026
+            expires_str = expires_str.replace('/0', '/')
             with open(cache_path, "w", encoding="utf-8") as f:
-                json.dump({"apikey": _apikey, "expires_at": _apikey_expires * 1000.0}, f, indent=2)
+                json.dump({"apikey": _apikey, "expires_at": expires_str}, f, indent=2)
             log.info("Đã lưu SMS apikey mới vào file cache.")
         except Exception as e:
             log.warning(f"Không ghi được file cache apikey: {e}")
 
-        log.info(f"✅ Apikey OK (expires at: {time.strftime('%H:%M:%S %d/%m/%Y', time.localtime(_apikey_expires))})")
+        expires_log = time.strftime('%H:%M:%S %d/%m/%Y', time.localtime(_apikey_expires)).replace('/0', '/')
+        log.info(f"✅ Apikey OK (expires at: {expires_log})")
         return _apikey
 
 def invalidate_apikey():

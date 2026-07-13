@@ -431,9 +431,10 @@ class RegistrationWorker:
                         except:
                             pass
 
-                        screenshot_path = str(config.DATA_DIR / f"error_fatal_{email.replace('+', '_')}.png")
-                        await page.screenshot(path=screenshot_path)
-                        log.info(f"Đã chụp screenshot lỗi fatal: {screenshot_path}")
+                        if not config.STOP_FLAG:
+                            screenshot_path = str(config.DATA_DIR / f"error_fatal_{email.replace('+', '_')}.png")
+                            await asyncio.wait_for(page.screenshot(path=screenshot_path), timeout=5.0)
+                            log.info(f"Đã chụp screenshot lỗi fatal: {screenshot_path}")
                 except Exception as se:
                     log.debug(f"Không thể chụp screenshot lỗi fatal: {se}")
                     

@@ -47,10 +47,18 @@ async def safe_wait_for_selector(page: Page, selector: str, timeout: int = 30000
 
 async def prepare_outlook_tab(context: BrowserContext, target_email: str, target_password: str) -> Page | None:
     log.info(f"[{target_email}] Preparing Outlook tab (Pre-login)...")
-    mail_page = await context.new_page()
+    
+    mail_page = None
     try:
-        # 1. Navigate to login.live.com
-        await mail_page.goto("https://login.live.com/")
+        # Sử dụng window.open từ trang hiện tại để đảm bảo mở tab mới CÙNG một cửa sổ ẩn danh
+        if context.pages:
+            base_page = context.pages[0]
+            async with context.expect_page() as page_info:
+                await base_page.evaluate("window.open('https://login.live.com/', '_blank')")
+            mail_page = await page_info.value
+        else:
+            mail_page = await context.new_page()
+            await mail_page.goto("https://login.live.com/")
         
         next_btn_sel = "input[id='idSIButton9'], button[type='submit'], button[data-testid='primaryButton']"        # Check if we need to login or if we are at "Pick an account" screen
         is_login = False
