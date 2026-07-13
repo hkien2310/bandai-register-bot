@@ -57,6 +57,16 @@ async def run_step5(page: Page, phone: str, pkey: str) -> str:
                         return resp.json()
                     
                     data = await asyncio.get_running_loop().run_in_executor(None, call_api)
+                    
+                    if data.get("status") == "error":
+                        msg = data.get("msg", "") or data.get("message", "")
+                        is_key_error = any(x in msg.lower() for x in ["api key", "hết hạn", "hợp lệ", "invalid", "expire"])
+                        if is_key_error:
+                            sms_service.invalidate_apikey()
+                            log.info("API Key hết hạn hoặc không hợp lệ khi poll OTP (Flow), đang lấy lại key mới...")
+                            apikey = sms_service._get_apikey(force_refresh=True)
+                            continue
+
                     otp = data.get("otp", "")
                     state = data.get("state", "")
                     log.debug(f"  getSms: state='{state}' otp='{otp}'")

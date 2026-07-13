@@ -76,6 +76,20 @@ def _get_apikey(force_refresh: bool = False) -> str:
         log.info(f"✅ Apikey OK (expires at: {time.strftime('%H:%M:%S %d/%m/%Y', time.localtime(_apikey_expires))})")
         return _apikey
 
+def invalidate_apikey():
+    """Clear memory and disk cache of apikey."""
+    global _apikey, _apikey_expires
+    with _apikey_lock:
+        _apikey = ""
+        _apikey_expires = 0.0
+        cache_path = config.DATA_DIR / "sms_apikey.json"
+        try:
+            if cache_path.exists():
+                cache_path.unlink()
+            log.info("🧹 Đã xoá cache API Key do nghi ngờ bị lỗi hoặc hết hạn.")
+        except Exception as e:
+            log.warning(f"Không xóa được cache apikey: {e}")
+
 def check_balance(force_refresh=False) -> int:
     """Check SMS API balance."""
     try:
@@ -93,9 +107,11 @@ def check_balance(force_refresh=False) -> int:
         else:
             msg = data.get("msg", "") or data.get("message", "")
             is_key_error = any(x in msg.lower() for x in ["api key", "hết hạn", "hợp lệ", "invalid", "expire"])
-            if not force_refresh and is_key_error:
-                log.info("API Key hết hạn hoặc không hợp lệ, thử lấy lại key mới...")
-                return check_balance(force_refresh=True)
+            if is_key_error:
+                invalidate_apikey()
+                if not force_refresh:
+                    log.info("API Key hết hạn hoặc không hợp lệ, thử lấy lại key mới...")
+                    return check_balance(force_refresh=True)
             log.error(f"❌ Lỗi API SMS: {data}")
     except Exception as e:
         log.error(f"❌ Lỗi khi lấy số dư: {e}")
@@ -128,9 +144,13 @@ def order_phone(
         msg = data.get("message", "") or data.get("msg", "")
         is_key_error = any(x in msg.lower() for x in ["api key", "hết hạn", "hợp lệ", "invalid", "expire"])
         if is_key_error:
-            log.info(f"order thất bại do key ({msg}). Thử lấy lại API key mới...")
-            data, params = _do_order(force=True)
-            if data.get("status") != "success":
+            invalidate_apikey()
+            if not force:
+                log.info(f"order thất bại do key ({msg}). Thử lấy lại API key mới...")
+                data, params = _do_order(force=True)
+                if data.get("status") != "success":
+                    raise RuntimeError(f"order thất bại: {data.get('message', data)}")
+            else:
                 raise RuntimeError(f"order thất bại: {data.get('message', data)}")
         else:
             raise RuntimeError(f"order thất bại: {data.get('message', data)}")
@@ -198,6 +218,15 @@ def poll_sms_otp(
                 timeout=10,
             )
             data = resp.json()
+
+            if data.get("status") == "error":
+                msg = data.get("msg", "") or data.get("message", "")
+                is_key_error = any(x in msg.lower() for x in ["api key", "hết hạn", "hợp lệ", "invalid", "expire"])
+                if is_key_error:
+                    invalidate_apikey()
+                    log.info("API Key hết hạn hoặc không hợp lệ khi poll OTP, đang lấy lại key mới...")
+                    apikey = _get_apikey(force_refresh=True)
+                    continue
 
             otp = data.get("otp", "")
             state = data.get("state", "")
