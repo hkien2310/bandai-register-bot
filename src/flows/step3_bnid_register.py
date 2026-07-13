@@ -16,7 +16,7 @@ async def human_delay(page: Page, min_ms: int = 800, max_ms: int = 2000):
     await page.wait_for_timeout(delay)
 
 
-async def run_step3(page: Page, email: str, password: str, birthday: str, has_bnid: bool = False, email_password: str = "") -> str:
+async def run_step3(page: Page, email: str, password: str, birthday: str, has_bnid: bool = False, email_password: str = "", refresh_token: str = None, client_id: str = None) -> str:
     """
     Điền form Bandai Namco ID.
     Sau khi submit form, đợi nhận OTP từ catch-all email, điền OTP, và lấy User Code.
@@ -25,15 +25,18 @@ async def run_step3(page: Page, email: str, password: str, birthday: str, has_bn
     
     Trả về BNID User Code.
     """
+    # Mở tab chuẩn bị lấy email trước
     since_ts = time.time()
     
     mail_page = None
     is_outlook = email.lower().endswith(("@hotmail.com", "@outlook.com", "@live.com"))
-    if is_outlook and email_password:
+    if is_outlook and email_password and not (refresh_token and client_id):
         from src.core.email_reader_web import prepare_outlook_tab
         mail_page = await prepare_outlook_tab(page.context, email, email_password)
         if mail_page:
             await page.bring_to_front()
+    elif refresh_token and client_id:
+        log.info(f"   Dùng DongVanFB API cho {email}. Bỏ qua bước mở tab web mail.")
     
     if has_bnid:
         log.info(f"--- THỰC HIỆN ĐĂNG NHẬP BANDAI NAMCO ID ({email}) ---")
@@ -254,7 +257,7 @@ async def run_step3(page: Page, email: str, password: str, birthday: str, has_bn
     # Đợi Bandai Namco xử lý và load xong trang nhập OTP trước khi lật sang tab Mail
     log.info("   Đang chờ Bandai Namco xử lý form và hiện ô nhập OTP...")
     try:
-        await page.wait_for_selector("input#code, input[name='code']", timeout=60000)
+        await page.wait_for_selector("input[name='authenticationCode'], input[name='code'], input[name='otp'], input[type='text']", timeout=60000)
     except:
         pass
     await page.wait_for_timeout(3000) # Đợi thêm 3s cho chắc chắn Bandai đã gửi mail đi
@@ -266,7 +269,9 @@ async def run_step3(page: Page, email: str, password: str, birthday: str, has_bn
         target_password=email_password,
         since_ts=since_ts,
         timeout=config.EMAIL_OTP_TIMEOUT,
-        mail_page=mail_page
+        mail_page=mail_page,
+        refresh_token=refresh_token,
+        client_id=client_id
     )
 
     if not email_otp:
@@ -283,7 +288,7 @@ async def run_step3(page: Page, email: str, password: str, birthday: str, has_bn
     await page.bring_to_front()
     await page.wait_for_timeout(1000)
 
-    log.info(f"   → OTP email: {email_otp}. Điền vào form...")
+    log.info(f"✅ → OTP email: {email_otp}. Điền vào form...")
     await human_delay(page, 800, 1500)
 
     # Dùng locator thay vì wait_for_selector để tránh lỗi ElementHandle không có .blur()

@@ -196,7 +196,7 @@ class RegistrationWorker:
                             raise Exception("Không tìm được proxy sống sau 3 lần thử.")
                     try:
                         asyncio.run(asyncio.wait_for(
-                            self._process_account_async(email, password, nickname, birthday, prefecture, proxy, result_data, has_bnid_local, email_password),
+                            self._process_account_async(email, password, nickname, birthday, prefecture, proxy, result_data, has_bnid_local, email_password, email_data.get("ms_token", ""), email_data.get("ms_uuid", "")),
                             timeout=300
                         ))
                         # Nếu thành công
@@ -302,7 +302,7 @@ class RegistrationWorker:
                 log.warning("🛑 Nhận lệnh STOP hoặc kịch bản dừng (như quá tải), kết thúc luồng.")
                 break
 
-    async def _process_account_async(self, email, password, nickname, birthday, prefecture, proxy, result_data, has_bnid_local, email_password: str = ""):
+    async def _process_account_async(self, email, password, nickname, birthday, prefecture, proxy, result_data, has_bnid_local, email_password: str = "", refresh_token: str = "", client_id: str = ""):
         """Chạy các bước đăng ký tuần tự trong cùng một event loop."""
         browser = BrowserInstance(worker_id=self.worker_id, proxy=proxy)
         try:
@@ -330,7 +330,16 @@ class RegistrationWorker:
             # Step 3: Đăng ký BNID + Nhập OTP Email
             if config.STOP_FLAG: raise Exception("KeyboardInterrupt")
             try:
-                await run_step3(page, email, password, birthday, has_bnid=has_bnid_local, email_password=email_password)
+                await run_step3(
+                    page=page, 
+                    email=email, 
+                    password=password, 
+                    birthday=birthday, 
+                    has_bnid=has_bnid_local, 
+                    email_password=email_password,
+                    refresh_token=refresh_token,
+                    client_id=client_id
+                )
                 result_data["bnid_user_code"] = "TRUE"
                 log.info(f"✅ Step 3 done — Đã qua bước OTP Email, đặt BNID = TRUE")
                 # Ghi ngay vào Accounts sau khi OTP email thành công

@@ -17,9 +17,12 @@ async def get_bandai_namco_otp(
     target_email: str = "",
     target_password: str = "",
     mail_page: Optional[object] = None,
+    refresh_token: str = "",
+    client_id: str = "",
 ) -> str | None:
     """
     Router for getting Bandai Namco OTP.
+    If refresh_token and client_id are provided, use DongVanFB API.
     If the email is an Outlook/Hotmail account and we have a password, 
     use the Web Flow (Playwright) to avoid IMAP blocks.
     Otherwise, fallback to the traditional IMAP approach.
@@ -28,6 +31,18 @@ async def get_bandai_namco_otp(
     if since_ts is None:
         import time
         since_ts = time.time()
+        
+    if refresh_token and client_id:
+        from src.core.email_reader_dongvanfb import get_bandai_namco_otp_dongvanfb
+        log.info(f"📧 Detecting DongVanFB tokens for '{target_email}'. Routing to DongVanFB API Flow...")
+        return await get_bandai_namco_otp_dongvanfb(
+            email=target_email,
+            refresh_token=refresh_token,
+            client_id=client_id,
+            timeout=timeout,
+            poll_interval=poll_interval,
+            since_ts=since_ts
+        )
         
     is_outlook = target_email.lower().endswith(("@hotmail.com", "@outlook.com", "@live.com"))
     has_password = bool(target_password)
