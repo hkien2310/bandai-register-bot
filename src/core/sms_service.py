@@ -37,7 +37,7 @@ def _get_apikey(force_refresh: bool = False) -> str:
                     with open(cache_path, "r", encoding="utf-8") as f:
                         cache_data = json.load(f)
                     file_key = cache_data.get("apikey")
-                    file_expires = cache_data.get("expires_at", 0.0)
+                    file_expires = cache_data.get("expires_at", 0.0) / 1000.0  # Convert to seconds
                     
                     if file_key and now < file_expires - 300:
                         _apikey = file_key
@@ -63,12 +63,12 @@ def _get_apikey(force_refresh: bool = False) -> str:
             raise RuntimeError(f"getKey thất bại: {data}")
 
         _apikey = data["apikey"]
-        _apikey_expires = data["expires_at"] / 1000
+        _apikey_expires = data.get("expires_at", 0.0) / 1000.0
         
         try:
-            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            config.DATA_DIR.mkdir(parents=True, exist_ok=True)
             with open(cache_path, "w", encoding="utf-8") as f:
-                json.dump({"apikey": _apikey, "expires_at": _apikey_expires}, f)
+                json.dump({"apikey": _apikey, "expires_at": _apikey_expires * 1000.0}, f, indent=2)
             log.info("Đã lưu SMS apikey mới vào file cache.")
         except Exception as e:
             log.warning(f"Không ghi được file cache apikey: {e}")
@@ -91,8 +91,10 @@ def check_balance(force_refresh=False) -> int:
             log.info(f"💰 Số dư SMS: {balance:,} điểm/yên")
             return balance
         else:
-            if not force_refresh:
-                log.info("API Key có thể đã hết hạn (qua ngày mới), thử lấy lại key mới...")
+            msg = data.get("msg", "") or data.get("message", "")
+            is_key_error = any(x in msg.lower() for x in ["api key", "hết hạn", "hợp lệ", "invalid", "expire"])
+            if not force_refresh and is_key_error:
+                log.info("API Key hết hạn hoặc không hợp lệ, thử lấy lại key mới...")
                 return check_balance(force_refresh=True)
             log.error(f"❌ Lỗi API SMS: {data}")
     except Exception as e:
@@ -123,9 +125,14 @@ def order_phone(
     data, params = _do_order()
 
     if data.get("status") != "success":
-        log.info(f"order thất bại ({data.get('message')}). Thử lấy lại API key mới...")
-        data, params = _do_order(force=True)
-        if data.get("status") != "success":
+        msg = data.get("message", "") or data.get("msg", "")
+        is_key_error = any(x in msg.lower() for x in ["api key", "hết hạn", "hợp lệ", "invalid", "expire"])
+        if is_key_error:
+            log.info(f"order thất bại do key ({msg}). Thử lấy lại API key mới...")
+            data, params = _do_order(force=True)
+            if data.get("status") != "success":
+                raise RuntimeError(f"order thất bại: {data.get('message', data)}")
+        else:
             raise RuntimeError(f"order thất bại: {data.get('message', data)}")
     
     apikey = params["apikey"]
