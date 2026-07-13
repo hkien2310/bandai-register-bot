@@ -18,10 +18,6 @@ def _get_apikey(force_refresh: bool = False) -> str:
     """Get apikey from cache or API. Thread-safe."""
     global _apikey, _apikey_expires
     
-    # Nếu đã cấu hình cứng sms_api_key trong config.json, dùng luôn không cần gọi API getKey
-    if config.SMS_API_KEY:
-        return config.SMS_API_KEY
-        
     with _apikey_lock:
         now = time.time()
         
@@ -30,34 +26,39 @@ def _get_apikey(force_refresh: bool = False) -> str:
             if _apikey and now < _apikey_expires - 300:
                 return _apikey
 
-            # 2. Disk cache check
-            cache_path = config.DATA_DIR / "sms_apikey.json"
-            if cache_path.exists():
-                try:
-                    with open(cache_path, "r", encoding="utf-8") as f:
-                        cache_data = json.load(f)
-                    file_key = cache_data.get("apikey")
-                    file_expires_raw = cache_data.get("expires_at", 0.0)
-                    if isinstance(file_expires_raw, str):
-                        try:
-                            import datetime
-                            dt = datetime.datetime.strptime(file_expires_raw, "%H:%M:%S %d/%m/%Y")
-                            file_expires = dt.timestamp()
-                        except:
-                            file_expires = time.time() + 31536000
-                    else:
-                        file_expires = file_expires_raw / 1000.0  # Convert to seconds
-                    
-                    if file_key and now < file_expires - 300:
-                        _apikey = file_key
-                        _apikey_expires = file_expires
-                        return _apikey
-                except Exception as e:
-                    log.warning(f"Không đọc được file cache apikey: {e}")
+            # 2. Disk cache check (từ config.json)
+            try:
+                # Reload config.json to get the latest changes (nếu user sửa tay)
+                if config.CONFIG_FILE.exists():
+                    with open(config.CONFIG_FILE, "r", encoding="utf-8") as f:
+                        config._cfg = json.load(f)
+
+                file_key = config._cfg.get("sms_api_key", "")
+                file_expires_raw = config._cfg.get("sms_api_key_expires", 0.0)
+                
+                if isinstance(file_expires_raw, str) and file_expires_raw:
+                    try:
+                        import datetime
+                        dt = datetime.datetime.strptime(file_expires_raw, "%H:%M:%S %d/%m/%Y")
+                        file_expires = dt.timestamp()
+                    except:
+                        file_expires = time.time() + 31536000
+                elif not file_expires_raw and file_key:
+                    # Nếu user điền key nhưng không điền hạn, mặc định cho sống 1 năm
+                    file_expires = time.time() + 31536000
+                else:
+                    file_expires = file_expires_raw / 1000.0 if file_expires_raw > 1e10 else file_expires_raw
+                
+                if file_key and now < file_expires - 300:
+                    _apikey = file_key
+                    _apikey_expires = file_expires
+                    return _apikey
+            except Exception as e:
+                log.warning(f"Không đọc được cache apikey từ config.json: {e}")
 
         # 3. Request new apikey
         if not config.SMS_USERNAME or not config.SMS_PASSWORD:
-            raise RuntimeError("SMS_USERNAME / SMS_PASSWORD chưa cấu hình trong .env")
+            raise RuntimeError("SMS_USERNAME / SMS_PASSWORD chưa cấu hình trong config.json")
 
         log.info("Lấy SMS apikey mới từ API...")
         resp = requests.post(
@@ -75,16 +76,19 @@ def _get_apikey(force_refresh: bool = False) -> str:
         _apikey_expires = data.get("expires_at", 0.0) / 1000.0
         
         try:
-            config.DATA_DIR.mkdir(parents=True, exist_ok=True)
             # Lưu file_expires dưới dạng string như user muốn
             expires_str = time.strftime('%H:%M:%S %d/%m/%Y', time.localtime(_apikey_expires))
             # Loại bỏ số 0 ở tháng/ngày nếu có để giống 12/7/2026
             expires_str = expires_str.replace('/0', '/')
-            with open(cache_path, "w", encoding="utf-8") as f:
-                json.dump({"apikey": _apikey, "expires_at": expires_str}, f, indent=2)
-            log.info("Đã lưu SMS apikey mới vào file cache.")
+            
+            # Ghi trực tiếp vào config._cfg và lưu ra config.json
+            config._cfg["sms_api_key"] = _apikey
+            config._cfg["sms_api_key_expires"] = expires_str
+            with open(config.CONFIG_FILE, "w", encoding="utf-8") as f:
+                json.dump(config._cfg, f, indent=4, ensure_ascii=False)
+            log.info("Đã lưu SMS apikey mới vào config.json.")
         except Exception as e:
-            log.warning(f"Không ghi được file cache apikey: {e}")
+            log.warning(f"Không ghi được file config.json: {e}")
 
         expires_log = time.strftime('%H:%M:%S %d/%m/%Y', time.localtime(_apikey_expires)).replace('/0', '/')
         log.info(f"✅ Apikey OK (expires at: {expires_log})")
@@ -96,13 +100,17 @@ def invalidate_apikey():
     with _apikey_lock:
         _apikey = ""
         _apikey_expires = 0.0
-        cache_path = config.DATA_DIR / "sms_apikey.json"
         try:
-            if cache_path.exists():
-                cache_path.unlink()
+            if "sms_api_key" in config._cfg:
+                config._cfg["sms_api_key"] = ""
+            if "sms_api_key_expires" in config._cfg:
+                config._cfg["sms_api_key_expires"] = ""
+            
+            with open(config.CONFIG_FILE, "w", encoding="utf-8") as f:
+                json.dump(config._cfg, f, indent=4, ensure_ascii=False)
             log.info("🧹 Đã xoá cache API Key do nghi ngờ bị lỗi hoặc hết hạn.")
         except Exception as e:
-            log.warning(f"Không xóa được cache apikey: {e}")
+            log.warning(f"Không xóa được cache apikey trong config.json: {e}")
 
 def check_balance(force_refresh=False) -> int:
     """Check SMS API balance."""
