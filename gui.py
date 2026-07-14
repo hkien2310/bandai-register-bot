@@ -294,6 +294,14 @@ class NamcoBotGUI:
         # Import trực tiếp module đang chạy và set flag — KHÔNG reload
         import src.config as bot_config
         bot_config.STOP_FLAG = True
+        
+        # Gọi huỷ tác vụ lập tức từ các luồng worker đang chờ (Thread-safe cancellation)
+        if hasattr(bot_config, "ACTIVE_WORKERS"):
+            for worker_info in bot_config.ACTIVE_WORKERS:
+                try:
+                    worker_info["loop"].call_soon_threadsafe(worker_info["task"].cancel)
+                except Exception:
+                    pass
 
         # Kill trực tiếp các tiến trình Chrome/Chromium của bot ở cấp độ OS (Thread-safe & Tức thời)
         import subprocess

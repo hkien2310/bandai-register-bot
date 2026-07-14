@@ -195,18 +195,37 @@ class RegistrationWorker:
                         else:
                             raise Exception("Không tìm được proxy sống sau 3 lần thử.")
                     try:
-                        asyncio.run(asyncio.wait_for(
-                            self._process_account_async(
-                                email, password, nickname, birthday, prefecture, proxy, result_data, has_bnid_local,
-                                email_password,
-                                email_data.get("ms_token", ""),
-                                email_data.get("ms_uuid", ""),
-                                email_data.get("otp_email", ""),
-                                email_data.get("otp_pass", ""),
-                                email_data.get("provider", "")
-                            ),
-                            timeout=300
-                        ))
+                        if not hasattr(config, "ACTIVE_WORKERS"):
+                            config.ACTIVE_WORKERS = []
+                        
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        
+                        task = loop.create_task(
+                            asyncio.wait_for(
+                                self._process_account_async(
+                                    email, password, nickname, birthday, prefecture, proxy, result_data, has_bnid_local,
+                                    email_password,
+                                    email_data.get("ms_token", ""),
+                                    email_data.get("ms_uuid", ""),
+                                    email_data.get("otp_email", ""),
+                                    email_data.get("otp_pass", ""),
+                                    email_data.get("provider", "")
+                                ),
+                                timeout=300
+                            )
+                        )
+                        
+                        worker_info = {"loop": loop, "task": task}
+                        config.ACTIVE_WORKERS.append(worker_info)
+                        
+                        try:
+                            loop.run_until_complete(task)
+                        finally:
+                            if worker_info in config.ACTIVE_WORKERS:
+                                config.ACTIVE_WORKERS.remove(worker_info)
+                            loop.close()
+                            
                         # Nếu thành công
                         has_bnid_local = True
                         success = True
@@ -216,6 +235,12 @@ class RegistrationWorker:
                         result_data["status"] = "ERROR"
                         result_data["error_details"] = "Timeout/Hanging"
                         self.sheets_manager.append_account(result_data)
+                    except asyncio.CancelledError:
+                        log.warning(f"🛑 Tài khoản {email} bị huỷ đột ngột (User bấm Stop).")
+                        result_data["status"] = "PENDING"
+                        result_data["error_details"] = "Dừng đột ngột"
+                        self.proxy_pool.release_proxy(proxy_idx)
+                        break
                     except BaseException as e:
                         raise e
                     self.proxy_pool.mark_used(proxy_idx)
@@ -242,9 +267,9 @@ class RegistrationWorker:
 
                     if config.STOP_FLAG:
                         log.warning("🛑 Nhận lệnh STOP, huỷ bỏ xử lý lỗi và thoát luồng.")
-                        result_data["status"] = "ABORTED"
+                        result_data["status"] = "PENDING"
                         result_data["error_details"] = "Dừng đột ngột"
-                        self.proxy_pool.mark_used(proxy_idx)
+                        self.proxy_pool.release_proxy(proxy_idx)
                         break
                         
                     # ─── Phân loại lỗi: KHÔNG RETRY vs CÓ THỂ RETRY ───
