@@ -81,5 +81,8 @@ SMS_SERVER          = str(_get("sms_server", "2"))
 USE_PROXY               = _get("use_proxy", True)
 MAX_ACCOUNTS_PER_PROXY  = int(_get("max_accounts_per_proxy", 10))
 
+# Active Sheet (Outlooks, Gmails, Iclouds)
+ACTIVE_SHEET            = _get("active_sheet", "Outlooks")
+
 # Biến cờ hiệu toàn cục để ngắt bot (Stop button)
 STOP_FLAG = False

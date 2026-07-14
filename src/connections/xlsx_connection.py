@@ -5,7 +5,9 @@ Thay thế hoàn toàn GoogleSheetsManager.
 Giữ nguyên interface (method names & return types) để worker.py không cần sửa.
 
 Cấu trúc file XLSX:
-  Sheet "Mails"    — danh sách email đầu vào (đọc + cập nhật status)
+  Sheet "Outlooks" — danh sách email Outlook/Hotmail đầu vào (đọc + cập nhật status)
+  Sheet "Gmails"   — danh sách email Gmail đầu vào (có otp_email, otp_pass)
+  Sheet "Iclouds"  — danh sách email iCloud đầu vào (có otp_email, otp_pass)
   Sheet "Accounts" — kết quả đăng ký (ghi/upsert)
   Sheet "Proxies"  — danh sách proxy (tùy chọn)
 """
@@ -19,6 +21,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 
 from src.utils.logger import get_logger
+from src import config
 
 log = get_logger("xlsx_connection")
 
@@ -26,7 +29,8 @@ log = get_logger("xlsx_connection")
 # Header definitions (single source of truth for all output columns)
 # ──────────────────────────────────────────────────────────────────────────────
 
-MAILS_HEADERS    = ["email", "email_password", "dob", "prefecture", "nickname", "status"]
+OUTLOOKS_HEADERS = ["email", "email_password", "dob", "prefecture", "nickname", "status"]
+CATCHALL_HEADERS = ["email", "email_password", "otp_email", "otp_pass", "dob", "prefecture", "nickname", "status"]
 ACCOUNTS_HEADERS = [
     "email", "bandai_password", "namco_password", "nickname",
     "phone", "bnid_user_code", "has_bnid", "proxy_used", "status", "created_at", "error_details"
@@ -124,30 +128,35 @@ class XlsxConnection:
                     except Exception:
                         pass
 
-                # Xử lý sheet Mails
-                ws_mail = wb["Mails"]
-                mail_headers = self._get_headers(ws_mail)
-                status_col = self._col_index(mail_headers, "status")
-                email_col  = self._col_index(mail_headers, "email")
-
-                reset_proc = 0
-                reset_fail = 0
-                for row in ws_mail.iter_rows(min_row=2):
-                    val = str(row[status_col].value or "").strip().upper()
-                    raw_cell = str(row[email_col].value or "").strip()
-                    email_plain = raw_cell.split("|")[0].strip().lower()
-
-                    if val == "PROCESSING":
-                        row[status_col].value = "PENDING"
-                        reset_proc += 1
-                    elif val == "FAILED":
-                        if email_plain not in emails_with_bnid:
-                            # Chưa có BNID → cho phép chạy lại
+                # Xử lý sheet đang active
+                active_sheet_name = getattr(config, "ACTIVE_SHEET", "Outlooks")
+                if active_sheet_name not in wb.sheetnames:
+                    active_sheet_name = "Outlooks" if "Outlooks" in wb.sheetnames else "Mails"
+                
+                if active_sheet_name in wb.sheetnames:
+                    ws_mail = wb[active_sheet_name]
+                    mail_headers = self._get_headers(ws_mail)
+                    status_col = self._col_index(mail_headers, "status")
+                    email_col  = self._col_index(mail_headers, "email")
+    
+                    reset_proc = 0
+                    reset_fail = 0
+                    for row in ws_mail.iter_rows(min_row=2):
+                        val = str(row[status_col].value or "").strip().upper()
+                        raw_cell = str(row[email_col].value or "").strip()
+                        email_plain = raw_cell.split("|")[0].strip().lower()
+    
+                        if val == "PROCESSING":
                             row[status_col].value = "PENDING"
-                            reset_fail += 1
-                        else:
-                            # Đã có BNID → đổi sang HAS_BNID để chạy luồng login
-                            row[status_col].value = "HAS_BNID"
+                            reset_proc += 1
+                        elif val == "FAILED":
+                            if email_plain not in emails_with_bnid:
+                                # Chưa có BNID → cho phép chạy lại
+                                row[status_col].value = "PENDING"
+                                reset_fail += 1
+                            else:
+                                # Đã có BNID → đổi sang HAS_BNID để chạy luồng login
+                                row[status_col].value = "HAS_BNID"
 
                 if reset_proc + reset_fail > 0:
                     wb.save(str(self.xlsx_path))
@@ -163,12 +172,12 @@ class XlsxConnection:
     reset_processing_to_pending = reset_interrupted_to_pending
 
     # ──────────────────────────────────────────────────────────────────────────
-    # Public: Mails sheet
+    # Public: Input sheets (Outlooks, Gmails, Iclouds)
     # ──────────────────────────────────────────────────────────────────────────
 
     def get_pending_emails(self, batch_size: int = 50) -> list:
         """
-        Đọc tối đa `batch_size` email có status PENDING (hoặc ô trống) từ sheet Mails.
+        Đọc tối đa `batch_size` email có status PENDING (hoặc ô trống) từ sheet đang active.
 
         Cột email hỗ trợ 2 format:
           - Chỉ email:               user@hotmail.com
@@ -183,7 +192,15 @@ class XlsxConnection:
         with self._lock:
             try:
                 wb = openpyxl.load_workbook(str(self.xlsx_path))
-                ws = wb["Mails"]
+                active_sheet_name = getattr(config, "ACTIVE_SHEET", "Outlooks")
+                if active_sheet_name not in wb.sheetnames:
+                    active_sheet_name = "Outlooks" if "Outlooks" in wb.sheetnames else "Mails"
+                    
+                if active_sheet_name not in wb.sheetnames:
+                    log.error(f"❌ Không tìm thấy sheet {active_sheet_name} trong file XLSX.")
+                    return []
+                    
+                ws = wb[active_sheet_name]
                 headers = self._get_headers(ws)
 
                 results = []
@@ -209,9 +226,12 @@ class XlsxConnection:
                             "email_password": email_password,
                             "ms_token": ms_token,
                             "ms_uuid": ms_uuid,
+                            "otp_email": str(row_dict.get("otp_email", "") or "").strip(),
+                            "otp_pass": str(row_dict.get("otp_pass", "") or "").strip(),
                             "dob": str(row_dict.get("dob", "") or "").strip(),
                             "prefecture": str(row_dict.get("prefecture", "") or "").strip(),
                             "nickname": str(row_dict.get("nickname", "") or "").strip(),
+                            "provider": active_sheet_name.lower()
                         })
                 wb.close()
                 log.info(f"📋 Đọc được {len(results)} email PENDING từ XLSX.")
@@ -223,7 +243,7 @@ class XlsxConnection:
 
     def update_email_status(self, email: str, status: str):
         """
-        Cập nhật cột status trong sheet Mails.
+        Cập nhật cột status trong sheet active.
         Tìm dòng theo email (hoặc raw pipe string nếu truyền vào).
         """
         email = str(email or "").strip()
@@ -232,7 +252,14 @@ class XlsxConnection:
         with self._lock:
             try:
                 wb = openpyxl.load_workbook(str(self.xlsx_path))
-                ws = wb["Mails"]
+                active_sheet_name = getattr(config, "ACTIVE_SHEET", "Outlooks")
+                if active_sheet_name not in wb.sheetnames:
+                    active_sheet_name = "Outlooks" if "Outlooks" in wb.sheetnames else "Mails"
+                
+                if active_sheet_name not in wb.sheetnames:
+                    return
+                    
+                ws = wb[active_sheet_name]
                 headers = self._get_headers(ws)
                 status_col = self._col_index(headers, "status")
                 email_col  = self._col_index(headers, "email")
@@ -415,17 +442,31 @@ class XlsxConnection:
 
     @staticmethod
     def create_template(xlsx_path: str) -> bool:
-        """Tạo file XLSX mẫu với 3 sheet: Mails, Accounts, Proxies."""
+        """Tạo file XLSX mẫu với các sheet: Outlooks, Gmails, Iclouds, Accounts, Proxies."""
         try:
             wb = Workbook()
 
-            # Sheet Mails
-            ws_mails = wb.active
-            ws_mails.title = "Mails"
-            XlsxConnection._write_header(ws_mails, MAILS_HEADERS, color="4472C4")
-            ws_mails.append(["example@gmail.com", "emailpassword", "1995-06-15", "東京都", "", "PENDING"])
+            # Sheet Outlooks
+            ws_outlooks = wb.active
+            ws_outlooks.title = "Outlooks"
+            XlsxConnection._write_header(ws_outlooks, OUTLOOKS_HEADERS, color="4472C4")
+            ws_outlooks.append(["example@hotmail.com", "emailpassword", "1995-06-15", "東京都", "", "PENDING"])
             for col, w in zip("ABCDEF", [35, 20, 14, 16, 20, 14]):
-                ws_mails.column_dimensions[col].width = w
+                ws_outlooks.column_dimensions[col].width = w
+
+            # Sheet Gmails
+            ws_gmails = wb.create_sheet("Gmails")
+            XlsxConnection._write_header(ws_gmails, CATCHALL_HEADERS, color="D32F2F")
+            ws_gmails.append(["alias@gmail.com", "mainpass", "catchall@gmail.com", "app_password_here", "1995-06-15", "東京都", "", "PENDING"])
+            for i, w in enumerate([35, 20, 35, 25, 14, 16, 20, 14], 1):
+                ws_gmails.column_dimensions[openpyxl.utils.get_column_letter(i)].width = w
+
+            # Sheet Iclouds
+            ws_iclouds = wb.create_sheet("Iclouds")
+            XlsxConnection._write_header(ws_iclouds, CATCHALL_HEADERS, color="0288D1")
+            ws_iclouds.append(["alias@icloud.com", "mainpass", "catchall@icloud.com", "app_password_here", "1995-06-15", "東京都", "", "PENDING"])
+            for i, w in enumerate([35, 20, 35, 25, 14, 16, 20, 14], 1):
+                ws_iclouds.column_dimensions[openpyxl.utils.get_column_letter(i)].width = w
 
             # Sheet Accounts
             ws_accounts = wb.create_sheet("Accounts")
@@ -454,9 +495,15 @@ class XlsxConnection:
 
     def _ensure_sheets(self, wb: Workbook):
         """Tạo các sheet còn thiếu trong file XLSX."""
-        if "Mails" not in wb.sheetnames:
-            ws = wb.create_sheet("Mails")
-            self._write_header(ws, MAILS_HEADERS, color="4472C4")
+        if "Outlooks" not in wb.sheetnames and "Mails" not in wb.sheetnames:
+            ws = wb.create_sheet("Outlooks")
+            self._write_header(ws, OUTLOOKS_HEADERS, color="4472C4")
+        if "Gmails" not in wb.sheetnames:
+            ws = wb.create_sheet("Gmails")
+            self._write_header(ws, CATCHALL_HEADERS, color="D32F2F")
+        if "Iclouds" not in wb.sheetnames:
+            ws = wb.create_sheet("Iclouds")
+            self._write_header(ws, CATCHALL_HEADERS, color="0288D1")
         if "Accounts" not in wb.sheetnames:
             ws = wb.create_sheet("Accounts")
             self._write_header(ws, ACCOUNTS_HEADERS, color="70AD47")

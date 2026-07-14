@@ -16,7 +16,7 @@ async def human_delay(page: Page, min_ms: int = 800, max_ms: int = 2000):
     await page.wait_for_timeout(delay)
 
 
-async def run_step3(page: Page, email: str, password: str, birthday: str, has_bnid: bool = False, email_password: str = "", refresh_token: str = None, client_id: str = None) -> str:
+async def run_step3(page: Page, email: str, password: str, birthday: str, has_bnid: bool = False, email_password: str = "", refresh_token: str = None, client_id: str = None, otp_email: str = "", otp_pass: str = "", provider: str = "") -> str:
     """
     Điền form Bandai Namco ID.
     Sau khi submit form, đợi nhận OTP từ catch-all email, điền OTP, và lấy User Code.
@@ -271,7 +271,10 @@ async def run_step3(page: Page, email: str, password: str, birthday: str, has_bn
         timeout=config.EMAIL_OTP_TIMEOUT,
         mail_page=mail_page,
         refresh_token=refresh_token,
-        client_id=client_id
+        client_id=client_id,
+        otp_email=otp_email,
+        otp_pass=otp_pass,
+        provider=provider
     )
 
     if not email_otp:

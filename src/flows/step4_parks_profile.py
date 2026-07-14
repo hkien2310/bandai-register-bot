@@ -83,6 +83,7 @@ async def run_step4(page: Page, email: str, password: str, nickname: str, birthd
                 # Thử tìm và click Later/Skip trong tối đa 5 giây
                 for _ in range(10):
                     for later_sel in [
+                        "button#btn-next", "#btn-next", "button.c-button--secondary",
                         "button:has-text('Later')", "button:has-text('later')", "button:has-text('LATER')",
                         "button:has-text('後で')", "button:has-text('スキップ')", "button:has-text('Skip')", "button:has-text('skip')",
                         "button:has-text('Not now')", "button:has-text('not now')",
@@ -92,7 +93,11 @@ async def run_step4(page: Page, email: str, password: str, nickname: str, birthd
                         "span:has-text('Skip')", "span:has-text('skip')",
                     ]:
                         try:
-                            btn = await page.query_selector(later_sel)
+                            # Try to wait for it specifically if it's the ID
+                            if later_sel == "button#btn-next" or later_sel == "#btn-next":
+                                btn = await page.wait_for_selector(later_sel, timeout=1000, state="visible")
+                            else:
+                                btn = await page.query_selector(later_sel)
                             if btn and await btn.is_visible():
                                 log.info(f"   [Passkey] Click nút bỏ qua: {later_sel}")
                                 await btn.click()
@@ -108,6 +113,10 @@ async def run_step4(page: Page, email: str, password: str, nickname: str, birthd
                 if clicked_later:
                     continue
                 else:
+                    html_content = await page.content()
+                    with open(f"data/passkey_dump_{email}.html", "w", encoding="utf-8") as f_html:
+                        f_html.write(html_content)
+                    log.error(f"   [Passkey] Dumped HTML to data/passkey_dump_{email}.html")
                     raise RuntimeError("Bắt buộc phải click Later trên màn hình Passkey nhưng không tìm thấy nút!")
 
             # 3. KIỂM TRA PHÁT HIỆN NÚT LATER/SKIP TRÊN CÁC TRANG TRUNG GIAN KHÁC (nếu có) -> CLICK BỎ QUA
@@ -237,6 +246,7 @@ async def run_step4(page: Page, email: str, password: str, nickname: str, birthd
                 "button:has-text('同意')",
                 "button:has-text('OK')",
                 "button:has-text('Continue')",
+                "button:has-text('Complete account profile')",
                 "button:has-text('次へ')",
                 "button.c-button--primary",
                 "button[type='submit']",

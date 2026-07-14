@@ -86,6 +86,9 @@ class NamcoBotGUI:
         self.xlsx_path_var = tk.StringVar()
         self.xlsx_path_var.set(cfg.get("xlsx_path", ""))
 
+        self.active_sheet_var = tk.StringVar()
+        self.active_sheet_var.set(cfg.get("active_sheet", "Outlooks"))
+
         # Tự động lưu cấu hình khi đóng cửa sổ app
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -132,8 +135,15 @@ class NamcoBotGUI:
         ttk.Button(xlsx_frame, text="Chọn file", command=self.choose_xlsx).pack(side=tk.LEFT, padx=2)
         ttk.Button(xlsx_frame, text="Tạo file mẫu", command=self.create_xlsx_template).pack(side=tk.LEFT, padx=2)
 
+        # Active Sheet selector
+        sheet_frame = ttk.Frame(frame)
+        sheet_frame.grid(row=7, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(0, 5))
+        ttk.Label(sheet_frame, text="🗂 Chọn luồng Mail cần chạy:").pack(side=tk.LEFT)
+        self.sheet_combo = ttk.Combobox(sheet_frame, textvariable=self.active_sheet_var, values=["Outlooks", "Gmails", "Iclouds"], state="readonly", width=15)
+        self.sheet_combo.pack(side=tk.LEFT, padx=5)
+
         btn_frame = ttk.Frame(frame)
-        btn_frame.grid(row=7, column=0, columnspan=3, pady=10)
+        btn_frame.grid(row=8, column=0, columnspan=3, pady=10)
 
         self.start_btn = ttk.Button(btn_frame, text="🚀 BẮT ĐẦU CHẠY", command=self.start_bot, width=20)
         self.start_btn.pack(side=tk.LEFT, padx=5)
@@ -142,17 +152,17 @@ class NamcoBotGUI:
         self.stop_btn.pack(side=tk.LEFT, padx=5)
 
         log_label_frame = ttk.Frame(frame)
-        log_label_frame.grid(row=8, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
+        log_label_frame.grid(row=9, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
         
         ttk.Label(log_label_frame, text="Tiến trình đang chạy:").pack(side=tk.LEFT)
         self.copy_btn = ttk.Button(log_label_frame, text="📋 Sao chép Log", command=self.copy_log)
         self.copy_btn.pack(side=tk.RIGHT)
 
         self.log_listbox = tk.Listbox(frame, height=10, bg="#f0f0f0", fg="#333", font=("Arial", 11))
-        self.log_listbox.grid(row=9, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S))
+        self.log_listbox.grid(row=10, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S))
 
         frame.columnconfigure(1, weight=1)
-        frame.rowconfigure(9, weight=1)
+        frame.rowconfigure(10, weight=1)
 
     def choose_browser(self):
         path = filedialog.askopenfilename(title="Chọn file chạy trình duyệt (Chromium/Chrome)")
@@ -239,6 +249,7 @@ class NamcoBotGUI:
         cfg["default_dob"] = self.default_dob_var.get()
         cfg["default_prefecture"] = self.default_pref_var.get()
         cfg["xlsx_path"] = self.xlsx_path_var.get()
+        cfg["active_sheet"] = self.active_sheet_var.get()
         save_json_config(cfg)
 
     def start_bot(self):

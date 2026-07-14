@@ -1,324 +1,138 @@
+"""
+email_reader_imap.py - Module lấy mã OTP của Bandai Namco từ Email thông qua giao thức IMAP (dùng App Password)
+"""
 import imaplib
 import email
-import email.utils
+from email.header import decode_header
 import re
 import time
-import threading
 from datetime import datetime, timezone
-import asyncio
+import dateutil.parser
 
-try:
-    from bs4 import BeautifulSoup
-    _HAS_BS4 = True
-except ImportError:
-    _HAS_BS4 = False
-
-import src.config as config
 from src.utils.logger import get_logger
 
 log = get_logger("email_reader_imap")
 
-# IMAP servers mapping
-IMAP_SERVERS = {
-    "gmail.com":      ("imap.gmail.com", 993),
-    "googlemail.com": ("imap.gmail.com", 993),
-    "icloud.com":     ("imap.mail.me.com", 993),
-    "me.com":         ("imap.mail.me.com", 993),
-    "mac.com":        ("imap.mail.me.com", 993),
-    "outlook.com":    ("imap-mail.outlook.com", 993),
-    "hotmail.com":    ("imap-mail.outlook.com", 993),
-    "live.com":       ("imap-mail.outlook.com", 993),
-    "yahoo.com":      ("imap.mail.yahoo.com", 993),
-}
-
-_IMAP_LOCK = threading.Lock()
-_shared_imap = None
-
-def _get_imap_host(email_addr: str) -> tuple[str, int]:
-    domain = email_addr.split("@")[-1].lower()
-    return IMAP_SERVERS.get(domain, (f"imap.{domain}", 993))
-
-def _connect() -> imaplib.IMAP4_SSL:
-    """Connect to IMAP server using catch-all config."""
-    host, port = _get_imap_host(config.CATCHALL_INBOX)
-    log.info(f"IMAP → {host}:{port} ({config.CATCHALL_INBOX})")
-    imap = imaplib.IMAP4_SSL(host, port)
-    imap.login(config.CATCHALL_INBOX, config.CATCHALL_PASSWORD)
-    log.info("✅ IMAP login OK")
-    return imap
-
-def _connect_individual(email_addr: str, email_pass: str) -> imaplib.IMAP4_SSL:
-    """Connect to IMAP server using individual email credentials."""
-    host, port = _get_imap_host(email_addr)
-    log.info(f"IMAP (Individual) → {host}:{port} ({email_addr})")
-    imap = imaplib.IMAP4_SSL(host, port)
-    imap.login(email_addr, email_pass)
-    log.info("✅ IMAP individual login OK")
-    return imap
-
-def _ensure_shared_imap() -> imaplib.IMAP4_SSL:
-    global _shared_imap
-    if _shared_imap is not None:
-        try:
-            _shared_imap.noop()
-            return _shared_imap
-        except Exception:
-            try:
-                _shared_imap.logout()
-            except Exception:
-                pass
-            _shared_imap = None
-    _shared_imap = _connect()
-    return _shared_imap
-
-def _get_body_text(msg) -> str:
-    """Extract body text from message."""
-    parts_plain, parts_html = [], []
-
-    if msg.is_multipart():
-        for part in msg.walk():
-            ctype = part.get_content_type()
-            if "attachment" in str(part.get("Content-Disposition", "")):
-                continue
-            try:
-                charset = part.get_content_charset() or "utf-8"
-                text = part.get_payload(decode=True).decode(charset, errors="ignore")
-                if ctype == "text/plain":
-                    parts_plain.append(text)
-                elif ctype == "text/html":
-                    parts_html.append(text)
-            except Exception:
-                continue
+def _get_imap_server(email_address: str) -> str:
+    """Trả về IMAP server tương ứng với đuôi email."""
+    domain = email_address.split("@")[-1].lower()
+    if domain in ["gmail.com"]:
+        return "imap.gmail.com"
+    elif domain in ["icloud.com", "me.com", "mac.com"]:
+        return "imap.mail.me.com"
     else:
+        # Mặc định thử gmail nếu không rõ
+        return "imap.gmail.com"
+
+def get_bandai_namco_otp_imap(
+    target_email: str,
+    otp_email: str,
+    otp_pass: str,
+    timeout: int = 120,
+    since_ts: float = 0
+) -> str:
+    """
+    Kết nối vào hộp thư `otp_email` bằng IMAP và mật khẩu ứng dụng `otp_pass`.
+    Quét hộp thư INBOX để tìm email gửi từ noreply@id.banapassport.net.
+    Lọc các email có nội dung đề cập tới `target_email` (nếu dùng alias).
+    Trả về chuỗi 6 số hoặc chuỗi rỗng nếu thất bại/hết giờ.
+    
+    :param target_email: Email thật dùng để đăng ký (ví dụ: alias+1@gmail.com)
+    :param otp_email: Email gốc dùng để login IMAP (ví dụ: alias@gmail.com)
+    :param otp_pass: App Password của email gốc
+    :param timeout: Thời gian chờ tối đa (giây)
+    :param since_ts: Chỉ lấy mail nhận SAU mốc thời gian này (timestamp)
+    """
+    if not otp_email or not otp_pass:
+        log.error(f"[{target_email}] Thiếu otp_email hoặc otp_pass để đăng nhập IMAP.")
+        return ""
+
+    imap_server = _get_imap_server(otp_email)
+    log.info(f"[{target_email}] Đang chờ OTP từ {otp_email} qua {imap_server} (Timeout: {timeout}s)")
+    
+    start_time = time.time()
+    
+    while time.time() - start_time < timeout:
         try:
-            charset = msg.get_content_charset() or "utf-8"
-            text = msg.get_payload(decode=True).decode(charset, errors="ignore")
-            if msg.get_content_type() == "text/html":
-                parts_html.append(text)
-            else:
-                parts_plain.append(text)
-        except Exception:
-            pass
-
-    if parts_plain:
-        return "\n".join(parts_plain)
-
-    html = "\n".join(parts_html)
-    if _HAS_BS4:
-        return BeautifulSoup(html, "lxml").get_text(separator=" ")
-    return re.sub(r"<[^<]+?>", " ", html)
-
-def _extract_otp(text: str) -> str | None:
-    """Extract Bandai Namco ID OTP (6 digits) from email body."""
-    # Bandai Namco ID email lists the code as "認証コード" (Verification Code) or "Confirmation Code"
-    patterns = [
-        r"認証コード[:\s\n**]+(\d{6})",
-        r"verification code[:\s\n**]+(\d{6})",
-        r"confirmation code[:\s\n**]+(\d{6})",
-        r"your code[:\s\n**]+(\d{6})",
-        r"\b(\d{6})\b",
-    ]
-    for p in patterns:
-        m = re.search(p, text, re.IGNORECASE)
-        if m:
-            return m.group(1)
-    return None
-
-def _get_msg_timestamp(msg) -> float:
-    try:
-        dt = email.utils.parsedate_to_datetime(msg.get("Date", ""))
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt.timestamp()
-    except Exception:
-        return time.time()
-
-def fetch_otp_since(
-    since_ts: float,
-    imap: imaplib.IMAP4_SSL | None = None,
-    target_email: str = "",
-) -> str | None:
-    """
-    Search catch-all inbox for Bandai Namco ID registration OTP since since_ts.
-    """
-    close_after = imap is None
-    if close_after:
-        imap = _connect()
-
-    try:
-        # Hỗ trợ tìm kiếm cả trong INBOX và Thư rác ([Gmail]/Spam hoặc [Gmail]/Spam Mail)
-        for folder in ["INBOX", "[Gmail]/Spam", "[Gmail]/Spam Mail"]:
-            try:
-                status, select_data = imap.select(folder)
-                if status != "OK":
-                    continue
-            except Exception:
-                continue
-
-            uids = []
-            # Search targets: id.banapassport.net or bandainamcoid.com
-            for criteria in [
-                ["UNSEEN", "HEADER", "FROM", "banapassport.net"],
-                ["UNSEEN", "HEADER", "FROM", "bandainamcoid.com"],
-                ["HEADER", "FROM", "banapassport.net"],
-                ["HEADER", "FROM", "bandainamcoid.com"],
-                ["UNSEEN"], # search all unseen as fallback
-            ]:
-                try:
-                    typ, data = imap.search(None, *criteria)
-                    if typ == "OK" and data[0]:
-                        uids = data[0].split()
-                        break
-                except Exception as e:
-                    log.debug(f"IMAP search criteria failed {criteria} in {folder}: {e}")
-                    continue
-
-            if not uids:
-                continue
-
-            log.debug(f"Found {len(uids)} email(s) in {folder}, checking newest first...")
-
-            for uid in reversed(uids):
-                try:
-                    typ, msg_data = imap.fetch(uid, "(RFC822)")
-                    if typ != "OK":
+            # 1. Kết nối IMAP
+            mail = imaplib.IMAP4_SSL(imap_server)
+            mail.login(otp_email, otp_pass)
+            mail.select("inbox")
+            
+            # 2. Tìm kiếm email từ Banapassport
+            # Lưu ý: Tìm theo FROM sẽ nhanh hơn duyệt toàn bộ
+            status, messages = mail.search(None, '(FROM "noreply@id.banapassport.net")')
+            
+            if status == "OK" and messages[0]:
+                msg_nums = messages[0].split()
+                # Duyệt từ mail mới nhất (số to nhất) lùi về
+                for num in reversed(msg_nums):
+                    res, msg_data = mail.fetch(num, "(BODY.PEEK[])")
+                    if res != "OK":
                         continue
-
-                    raw = next(
+                        
+                    raw_email = next(
                         (p[1] for p in msg_data if isinstance(p, tuple) and p[1]),
                         None
                     )
-                    if not raw:
+                    if not raw_email:
                         continue
-
-                    msg = email.message_from_bytes(raw)
-
-                    msg_ts = _get_msg_timestamp(msg)
-                    if msg_ts < (since_ts - 60):  # Allow 60s clock skew
-                        log.debug(f"  UID={uid.decode()} too old ({datetime.fromtimestamp(msg_ts).strftime('%H:%M:%S')}), skip")
-                        continue
-
-                    subj = msg.get("Subject", "")
-                    from_hdr = msg.get("From", "")
-                    to_hdr = msg.get("To", "") or ""
-                    log.debug(f"  UID={uid.decode()} | From={from_hdr} | To={to_hdr} | Subject={subj!r}")
-
-                    # Check if target email matches the To field (for alias/catch-all filtering)
-                    if target_email:
-                        target_lower = target_email.lower().strip()
-                        to_lower = to_hdr.lower().strip()
-                        # Some forwards might place target in body or other headers, but typically To is standard.
-                        if target_lower not in to_lower:
-                            log.debug(f"  UID={uid.decode()} To header '{to_hdr}' does not match target '{target_email}', skip")
+                    
+                    msg = email.message_from_bytes(raw_email)
+                    
+                    # 3. Lấy thời gian nhận mail
+                    date_tuple = email.utils.parsedate_tz(msg['Date'])
+                    if date_tuple:
+                        local_date = datetime.fromtimestamp(email.utils.mktime_tz(date_tuple))
+                        mail_ts = local_date.timestamp()
+                        
+                        # Bỏ qua mail cũ
+                        if since_ts > 0 and mail_ts < since_ts:
                             continue
-
-                    body = _get_body_text(msg)
-                    otp = _extract_otp(body)
-
-                    if otp:
-                        log.info(f"✅ Found Bandai Namco ID OTP={otp} | UID={uid.decode()} | Folder={folder} | Subject={subj!r}")
-                        try:
-                            imap.store(uid, "+FLAGS", "\\Seen")
-                        except Exception:
-                            pass
-                        return otp
+                            
+                    # 4. Kiểm tra TO address có chứa target_email không (cho Alias)
+                    # Bandai account confirmation mail usually goes to the exact target_email
+                    to_address = str(msg.get("To", "")).lower()
+                    
+                    # 5. Lấy nội dung body
+                    body = ""
+                    if msg.is_multipart():
+                        for part in msg.walk():
+                            content_type = part.get_content_type()
+                            if content_type == "text/plain":
+                                try:
+                                    # Fallback to empty charset if None
+                                    charset = part.get_content_charset() or 'utf-8'
+                                    body = part.get_payload(decode=True).decode(charset, errors='replace')
+                                except:
+                                    pass
                     else:
-                        log.warning(f"  Email matches filters but failed to extract OTP | Subject={subj!r}")
-
-                except Exception as e:
-                    log.warning(f"  Error reading UID={uid.decode()} in {folder}: {e}")
-                    continue
-
-        return None
-
-    finally:
-        if close_after and imap:
-            try:
-                imap.logout()
-            except Exception:
-                pass
-
-def get_bandai_namco_otp_imap_sync(
-    since_ts: float,
-    timeout: int,
-    poll_interval: int,
-    target_email: str,
-    target_password: str,
-) -> str | None:
-    """Sync version of get_bandai_namco_otp."""
-    use_individual = bool(target_password and target_email)
-    
-    if not use_individual:
-        if not config.CATCHALL_INBOX or not config.CATCHALL_PASSWORD:
-            log.error("❌ Không có CATCHALL config và cũng không có email_password!")
-            return None
-
-    log.info(
-        f"⏳ Waiting for OTP (IMAP) | Inbox: {'Individual' if use_individual else config.CATCHALL_INBOX} "
-        f"| Since: {datetime.fromtimestamp(since_ts).strftime('%H:%M:%S')} "
-        f"| Target: {target_email} | Timeout: {timeout}s"
-    )
-
-    deadline = time.time() + timeout
-    
-    while time.time() < deadline:
-        try:
-            if use_individual:
-                imap = _connect_individual(target_email, target_password)
-                try:
-                    otp = fetch_otp_since(since_ts=since_ts, imap=imap, target_email=target_email)
-                    if otp:
-                        return otp
-                finally:
-                    try:
-                        imap.logout()
-                    except Exception:
-                        pass
-            else:
-                with _IMAP_LOCK:
-                    imap = _ensure_shared_imap()
-                    otp = fetch_otp_since(since_ts=since_ts, imap=imap, target_email=target_email)
-                    if otp:
-                        return otp
-        except imaplib.IMAP4.error as e:
-            log.error(f"❌ IMAP login failed for {target_email}: {e}")
-            return None  
+                        try:
+                            charset = msg.get_content_charset() or 'utf-8'
+                            body = msg.get_payload(decode=True).decode(charset, errors='replace')
+                        except:
+                            pass
+                            
+                    # Kiểm tra xem body hoặc to_address có chứa mã 6 số
+                    if body:
+                        # Kiểm tra xem target_email có nằm trong email này không (để tránh lấy nhầm alias khác)
+                        # TO address hoặc nội dung body
+                        if target_email in to_address or target_email in body.lower():
+                            match = re.search(r'([0-9]{6})', body)
+                            if match:
+                                otp_code = match.group(1)
+                                log.info(f"[{target_email}] Đã tìm thấy mã OTP: {otp_code}")
+                                mail.logout()
+                                return otp_code
+            
+            mail.logout()
         except Exception as e:
-            log.warning(f"IMAP search error, will reconnect: {e}")
-            if not use_individual:
-                global _shared_imap
-                _shared_imap = None 
-
-        remaining = int(deadline - time.time())
-        if remaining <= 0:
-            break
-        # Chờ ngắt quãng để phản hồi nút STOP ngay lập tức
-        import src.config as config
-        stop_requested = False
-        for _ in range(int(poll_interval * 2)):
-            if config.STOP_FLAG:
-                stop_requested = True
-                break
-            time.sleep(0.5)
-        if stop_requested:
-            log.warning("🛑 Nhận lệnh STOP, dừng chờ OTP Email.")
-            break
-
-    log.warning(f"⏰ Timeout {timeout}s — No OTP found for {target_email} via IMAP")
-    return None
-
-async def get_bandai_namco_otp_imap(
-    since_ts: float,
-    timeout: int,
-    poll_interval: int,
-    target_email: str,
-    target_password: str,
-) -> str | None:
-    """Async wrapper for the sync IMAP logic to prevent blocking the event loop."""
-    return await asyncio.to_thread(
-        get_bandai_namco_otp_imap_sync,
-        since_ts, timeout, poll_interval, target_email, target_password
-    )
+            import traceback; log.error(f"[{target_email}] Lỗi IMAP: {e}\n{traceback.format_exc()}")
+            
+        time.sleep(5)
+        
+    log.warning(f"[{target_email}] Hết thời gian ({timeout}s) không nhận được OTP qua IMAP.")
+    return ""
 
 def get_gmail_dot_alias(base_email: str, index: int) -> str:
     username, domain = base_email.split("@", 1)
@@ -338,22 +152,25 @@ def get_gmail_dot_alias(base_email: str, index: int) -> str:
     return "".join(result) + "@" + domain
 
 def generate_account_email(account_id: int | str) -> str:
-    prefix = config.CATCHALL_EMAIL_PREFIX or "acc"
+    import src.config as config
+    prefix = getattr(config, "CATCHALL_EMAIL_PREFIX", "acc")
     suffix = f"{account_id:05d}" if isinstance(account_id, int) else str(account_id)
 
-    if config.EMAIL_MODE == "alias":
-        if not config.CATCHALL_INBOX:
+    if getattr(config, "EMAIL_MODE", "alias") == "alias":
+        catchall_inbox = getattr(config, "CATCHALL_INBOX", None)
+        if not catchall_inbox:
             raise ValueError("CATCHALL_INBOX not configured in .env")
-        base, domain = config.CATCHALL_INBOX.split("@", 1)
+        base, domain = catchall_inbox.split("@", 1)
         if domain.lower() in ["gmail.com", "googlemail.com"]:
             try:
                 idx = int(suffix)
             except ValueError:
                 idx = abs(hash(suffix))
-            return get_gmail_dot_alias(config.CATCHALL_INBOX, idx)
+            return get_gmail_dot_alias(catchall_inbox, idx)
         else:
             return f"{base}+{prefix}{suffix}@{domain}"
     else:
-        if not config.CATCHALL_DOMAIN:
+        catchall_domain = getattr(config, "CATCHALL_DOMAIN", None)
+        if not catchall_domain:
             raise ValueError("CATCHALL_DOMAIN not configured in .env")
-        return f"{prefix}{suffix}@{config.CATCHALL_DOMAIN}"
+        return f"{prefix}{suffix}@{catchall_domain}"

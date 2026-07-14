@@ -196,7 +196,15 @@ class RegistrationWorker:
                             raise Exception("Không tìm được proxy sống sau 3 lần thử.")
                     try:
                         asyncio.run(asyncio.wait_for(
-                            self._process_account_async(email, password, nickname, birthday, prefecture, proxy, result_data, has_bnid_local, email_password, email_data.get("ms_token", ""), email_data.get("ms_uuid", "")),
+                            self._process_account_async(
+                                email, password, nickname, birthday, prefecture, proxy, result_data, has_bnid_local,
+                                email_password,
+                                email_data.get("ms_token", ""),
+                                email_data.get("ms_uuid", ""),
+                                email_data.get("otp_email", ""),
+                                email_data.get("otp_pass", ""),
+                                email_data.get("provider", "")
+                            ),
                             timeout=300
                         ))
                         # Nếu thành công
@@ -302,7 +310,7 @@ class RegistrationWorker:
                 log.warning("🛑 Nhận lệnh STOP hoặc kịch bản dừng (như quá tải), kết thúc luồng.")
                 break
 
-    async def _process_account_async(self, email, password, nickname, birthday, prefecture, proxy, result_data, has_bnid_local, email_password: str = "", refresh_token: str = "", client_id: str = ""):
+    async def _process_account_async(self, email, password, nickname, birthday, prefecture, proxy, result_data, has_bnid_local, email_password: str = "", refresh_token: str = "", client_id: str = "", otp_email: str = "", otp_pass: str = "", provider: str = ""):
         """Chạy các bước đăng ký tuần tự trong cùng một event loop."""
         browser = BrowserInstance(worker_id=self.worker_id, proxy=proxy)
         try:
@@ -338,7 +346,10 @@ class RegistrationWorker:
                     has_bnid=has_bnid_local, 
                     email_password=email_password,
                     refresh_token=refresh_token,
-                    client_id=client_id
+                    client_id=client_id,
+                    otp_email=otp_email,
+                    otp_pass=otp_pass,
+                    provider=provider
                 )
                 result_data["bnid_user_code"] = "TRUE"
                 log.info(f"✅ Step 3 done — Đã qua bước OTP Email, đặt BNID = TRUE")
