@@ -150,6 +150,26 @@ async def run_step3(page: Page, email: str, password: str, birthday: str, has_bn
             "使用されています",
             "登録済み"
         ]
+        
+        # Check explicit error areas
+        try:
+            err_text = await page.evaluate('''() => {
+                let err1 = document.querySelector('#error-input-area:not(.u-hide)');
+                let err2 = document.querySelector('#error-terms:not(.u-hide)');
+                return (err1 ? err1.innerText : '') + ' ' + (err2 ? err2.innerText : '');
+            }''')
+            if err_text and err_text.strip():
+                log.error(f"⚠️ Bandai trả về lỗi trên form: {err_text.strip()}")
+                if any(marker in err_text for marker in email_in_use_markers):
+                    is_already_in_use = True
+                    break
+                else:
+                    raise RuntimeError(f"FORM_ERROR: {err_text.strip()}")
+        except Exception as e:
+            if isinstance(e, RuntimeError) and "FORM_ERROR" in str(e):
+                raise e
+            pass
+            
         if any(marker in page_text for marker in email_in_use_markers):
             log.warning(f"⚠️ Phát hiện lỗi trùng email hiển thị trên trang!")
             is_already_in_use = True
@@ -171,11 +191,23 @@ async def run_step3(page: Page, email: str, password: str, birthday: str, has_bn
         raise RuntimeError("EMAIL_ALREADY_IN_USE")
 
     # Chờ input#id_year được gắn vào DOM
-    await page.wait_for_selector(
-        "input#id_year",
-        state="attached",
-        timeout=60000
-    )
+    try:
+        await page.wait_for_selector(
+            "input#id_year",
+            state="attached",
+            timeout=60000
+        )
+    except Exception as e:
+        log.error("Lỗi Timeout khi đợi input#id_year. Đang chụp ảnh màn hình để debug...")
+        try:
+            import os
+            from core.config import get_project_root
+            screenshot_path = os.path.join(get_project_root(), "data", f"timeout_step3_{email}.png")
+            await page.screenshot(path=screenshot_path, full_page=True)
+            log.info(f"Đã lưu ảnh màn hình lỗi tại: {screenshot_path}")
+        except Exception as img_e:
+            log.error(f"Không thể chụp ảnh màn hình: {img_e}")
+        raise e
 
     await human_delay(page, 1000, 2000)
 
