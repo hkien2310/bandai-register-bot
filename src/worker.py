@@ -172,7 +172,12 @@ class RegistrationWorker:
                             break
                         except Exception as e:
                             if "SITE_OVERLOADED" in str(e) or (hasattr(e, 'response') and e.response is not None and e.response.status_code in [502, 503, 504]):
-                                raise Exception("SITE_OVERLOADED: Namco server quá tải ngay bước check proxy!")
+                                log.error(f"❌ Server Namco đang quá tải (アクセス集中). TỰ ĐỘNG DỪNG TOOL.")
+                                self.sheets_manager.update_email_status(raw_email, "PENDING")
+                                if self.email_queue is not None:
+                                    with self.email_queue.mutex:
+                                        self.email_queue.queue.clear()
+                                break
                                 
                             log.warning(f"❌ Proxy chết ({type(e).__name__}), đổi proxy khác...")
                             self.proxy_pool.mark_failed(proxy_idx)
@@ -192,6 +197,9 @@ class RegistrationWorker:
                     if config.USE_PROXY and not proxy:
                         if len(self.proxy_pool.proxies) == 0:
                             raise Exception("KHO_PROXY_CAN_KIET")
+                        elif self.email_queue.empty():
+                            # Nếu queue bị clear (do site quá tải hoặc cạn proxy), thoát nhẹ nhàng
+                            break
                         else:
                             raise Exception("Không tìm được proxy sống sau 3 lần thử.")
                     try:
