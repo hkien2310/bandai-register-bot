@@ -301,7 +301,10 @@ class RegistrationWorker:
                     # Đánh dấu proxy chết nếu lỗi mạng
                     is_proxy_error = False
                     if "net::ERR_" in error_msg or "Target page, context or browser has been closed" in error_msg or "Timeout" in error_msg:
-                        log.warning(f"   -> Lỗi mạng/trình duyệt, đánh dấu proxy chết...")
+                        if config.USE_PROXY:
+                            log.warning(f"   -> Lỗi mạng/trình duyệt, đánh dấu proxy chết...")
+                        else:
+                            log.warning(f"   -> Lỗi mạng/trình duyệt (Kết nối trực tiếp/Không dùng proxy)...")
                         self.proxy_pool.mark_failed(proxy_idx)
                         is_proxy_error = True
                     
