@@ -217,8 +217,8 @@ class XlsxConnection:
                         parts = raw_email_cell.split("|")
                         email         = parts[0].strip()
                         email_password = parts[1].strip() if len(parts) > 1 else str(row_dict.get("email_password", "") or "").strip()
-                        ms_token      = parts[2].strip() if len(parts) > 2 else ""
-                        ms_uuid       = parts[3].strip() if len(parts) > 3 else ""
+                        ms_token      = parts[2].strip() if len(parts) > 2 else str(row_dict.get("ms_token", "") or "").strip()
+                        ms_uuid       = parts[3].strip() if len(parts) > 3 else str(row_dict.get("ms_uuid", "") or "").strip()
 
                         results.append({
                             "email": email,
