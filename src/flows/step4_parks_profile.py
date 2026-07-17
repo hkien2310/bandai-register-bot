@@ -22,6 +22,7 @@ async def run_step4(page: Page, email: str, password: str, nickname: str, birthd
     """
     birth_year, birth_month, birth_day = birthday_str.split("-")
 
+    log.info("   [Màn hình Namco Parks] Bắt đầu màn hình Namco Parks Profile...")
     log.info("1. Xử lý trang Terms / Privacy consent và chờ về Namco Parks...")
 
     def is_on_parks_form(url: str) -> bool:
@@ -647,5 +648,5 @@ async def run_step4(page: Page, email: str, password: str, nickname: str, birthd
     if not phone or not pkey:
         raise ValueError("Không thể thuê được số điện thoại hợp lệ sau 4 lần thử!")
 
-    log.info(f"   ✅ Kích hoạt SMS OTP. URL: {page.url}")
+    log.info(f"   [Màn hình Namco Parks] ✅ Đã hoàn thành màn hình Profile và kích hoạt SMS OTP. URL: {page.url}")
     return phone, pkey

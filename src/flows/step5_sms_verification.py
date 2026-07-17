@@ -11,8 +11,10 @@ log = get_logger("step5_sms_verification")
 
 async def run_step5(page: Page, phone: str, pkey: str) -> str:
     """
-    Step 5: Xác thực SMS OTP (Poll mã, tự động điền, tạm dừng chờ kiểm tra).
+    Chờ ở trang nhập mã xác nhận, poll API lấy SMS và điền vào form,
+    rồi kiểm tra xem đã chuyển đến trang đăng ký thành công (member_regist_finish.html) chưa.
     """
+    log.info("   [Màn hình SMS OTP] Bắt đầu màn hình xác thực SMS...")
     log.info("1. Chờ trang nhập mã SMS OTP...")
 
     # Chờ ô nhập OTP SMS xuất hiện
@@ -116,7 +118,8 @@ async def run_step5(page: Page, phone: str, pkey: str) -> str:
                 # Chờ trang web chuyển hướng sau khi submit OTP
                 try:
                     await page.wait_for_url("**/top.html*", timeout=60000)
-                    log.info(f"✅ Đã về đích an toàn tại trang: {page.url}")
+                    log.info(f"   [Màn hình SMS OTP] ✅ Đã hoàn thành màn hình SMS OTP. Trang đích an toàn: {page.url}")
+                    return "SUCCESS"
                 except Exception:
                     log.error(f"❌ Lỗi: Sau khi nhập OTP, không thấy về trang top.html! URL hiện tại: {page.url}")
                     sc_path = str(config.DATA_DIR / f"err_sms_otp_fail_{int(time.time())}.png")

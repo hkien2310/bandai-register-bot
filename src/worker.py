@@ -290,10 +290,11 @@ class RegistrationWorker:
                     if is_permanent:
                         log.error(f"🚫 Lỗi KHÔNG THỂ RETRY: {error_msg[:200]}")
                         if "EMAIL_ALREADY_IN_USE" in error_msg or "Email đã được sử dụng" in error_msg:
-                            result_data["status"] = "HAS_BNID"
+                            result_data["status"] = "ABORTED"
+                            result_data["error_details"] = "Email đã được sử dụng"
                         else:
                             result_data["status"] = "ABORTED"
-                        result_data["error_details"] = error_msg[:200]
+                            result_data["error_details"] = error_msg[:200]
                         self.proxy_pool.mark_used(proxy_idx)
                         break  # Thoát vòng retry ngay
                     

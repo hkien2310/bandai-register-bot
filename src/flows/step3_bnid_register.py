@@ -16,14 +16,15 @@ async def human_delay(page: Page, min_ms: int = 800, max_ms: int = 2000):
     await page.wait_for_timeout(delay)
 
 async def handle_email_otp(page: Page, email: str, email_password: str, since_ts: float, mail_page, refresh_token: str = None, client_id: str = None, otp_email: str = "", otp_pass: str = "", provider: str = ""):
-    log.info("   Đang chờ Bandai Namco xử lý form và hiện ô nhập OTP...")
+    log.info("   [Màn hình OTP] Bắt đầu màn hình OTP...")
+    log.info("   [Màn hình OTP] Đang chờ Bandai Namco xử lý form và hiện ô nhập OTP...")
     try:
         await page.wait_for_selector("input[name='authenticationCode'], input[name='code'], input[name='otp'], input[type='text']", timeout=60000)
     except:
         pass
     await page.wait_for_timeout(3000) # Đợi thêm 3s cho chắc chắn Bandai đã gửi mail đi
 
-    log.info("   Đang poll OTP email (Web/IMAP)...")
+    log.info("   [Màn hình OTP] Đang thực hiện lấy OTP...")
     email_otp = await get_bandai_namco_otp(
         context=page.context,
         target_email=email,
@@ -47,13 +48,14 @@ async def handle_email_otp(page: Page, email: str, email_password: str, since_ts
                 await asyncio.wait_for(page.screenshot(path=sc_path), timeout=5.0)
             except Exception:
                 pass
+        log.error("   [Màn hình OTP] Thất bại: Không lấy được OTP từ email.")
         raise TimeoutError(f"Không nhận được OTP email sau {config.EMAIL_OTP_TIMEOUT}s!")
 
     # Đưa focus quay lại tab Bandai Namco để điền OTP cho người dùng thấy
     await page.bring_to_front()
     await page.wait_for_timeout(1000)
 
-    log.info(f"✅ → OTP email: {email_otp}. Điền vào form...")
+    log.info(f"   [Màn hình OTP] Đã nhận OTP: {email_otp}. Đang điền vào form...")
     await human_delay(page, 800, 1500)
 
     # Dùng locator thay vì wait_for_selector để tránh lỗi ElementHandle không có .blur()
@@ -65,7 +67,7 @@ async def handle_email_otp(page: Page, email: str, email_password: str, since_ts
     await otp_loc.blur()  # Locator.blur() hoạt động đúng, kích hoạt cập nhật trạng thái nút
 
     # Submit OTP
-    log.info("   Đã blur OTP field. Đang click nút submit OTP...")
+    log.info("   [Màn hình OTP] Đang click nút submit OTP...")
     await human_delay(page, 800, 1500)
     otp_submit_sel = "button[type='submit'], button.c-button--primary, button:has-text('Authenticate'), button:has-text('次へ'), button:has-text('送信'), button:has-text('確認')"
     otp_submit = await page.wait_for_selector(otp_submit_sel, timeout=60000)
@@ -74,7 +76,7 @@ async def handle_email_otp(page: Page, email: str, email_password: str, since_ts
         await page.wait_for_load_state("domcontentloaded", timeout=25000)
     except Exception:
         pass
-    log.info(f"   → URL sau OTP submit: {page.url}")
+    log.info(f"   [Màn hình OTP] Đã hoàn thành màn hình OTP (điều kiện phải qua màn sau). URL sau submit: {page.url}")
 
 
 async def run_step3(page: Page, email: str, password: str, birthday: str, has_bnid: bool = False, email_password: str = "", refresh_token: str = None, client_id: str = None, otp_email: str = "", otp_pass: str = "", provider: str = "") -> str:
