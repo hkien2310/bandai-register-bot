@@ -39,8 +39,15 @@ async def run_step2(page: Page, has_bnid: bool = False) -> bool:
         log.info("2. Click nút vàng 'バンダイナムコIDを取得'...")
         btn_selector = "a.btn-bnam-new, a[href*='signup.html'], a[href*='signUp.html']"
 
-    yellow_btn = await page.wait_for_selector(btn_selector, timeout=20000)
-    
+    yellow_btn = None
+    try:
+        body = await page.evaluate("() => document.body ? document.body.innerText : ''")
+        if "アクセス集中" in body or "エラーが発生しました" in body:
+            raise Exception("SITE_OVERLOADED: Trang web Namco đang bị quá tải (Access Concentration).")
+        yellow_btn = await page.wait_for_selector(btn_selector, timeout=20000)
+    except Exception as e:
+        if "SITE_OVERLOADED" in str(e): raise
+        raise
     # Đảm bảo mở trong tab hiện tại, không mở tab mới
     await page.evaluate(
         f"""

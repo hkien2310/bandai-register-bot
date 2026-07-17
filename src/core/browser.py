@@ -164,16 +164,16 @@ class BrowserInstance:
 
         if hasattr(self, 'browser') and self.browser:
             try:
-                await asyncio.wait_for(self.browser.close(), timeout=10.0)
+                await asyncio.wait_for(self.browser.close(), timeout=5.0)
             except Exception as e:
-                log.warning(f"Lỗi khi đóng browser: {e}")
+                log.debug(f"Lỗi khi đóng browser ({type(e).__name__}): {e}")
             self.browser = None
 
         if self.playwright:
             try:
-                await asyncio.wait_for(self.playwright.stop(), timeout=10.0)
+                await asyncio.wait_for(self.playwright.stop(), timeout=5.0)
             except Exception as e:
-                log.warning(f"Lỗi khi stop playwright: {e}")
+                log.debug(f"Lỗi khi stop playwright ({type(e).__name__}): {e}")
             self.playwright = None
 
         # Xóa khỏi ACTIVE_BROWSERS

@@ -266,11 +266,10 @@ class RegistrationWorker:
 
                     # ─── Lỗi quá tải Server Namco ───
                     if "SITE_OVERLOADED" in error_msg:
-                        log.error("❌ Server Namco đang quá tải (アクセス集中). TỰ ĐỘNG DỪNG TOOL và ghi kết quả thất bại lên Sheet.")
-                        result_data["status"] = "FAILED"
+                        log.warning(f"❌ Server Namco đang quá tải (アクセス集中). Tự động bỏ qua account này và chuyển trạng thái thành PENDING để thử lại sau.")
+                        result_data["status"] = "PENDING"
                         result_data["error_details"] = "Server Namco quá tải (Access Concentration)"
-                        self.proxy_pool.mark_used(proxy_idx)
-                        config.STOP_FLAG = True  # Phát tín hiệu dừng toàn bộ bot
+                        self.proxy_pool.release_proxy(proxy_idx)
                         break
 
                     if config.STOP_FLAG:

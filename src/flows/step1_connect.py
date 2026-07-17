@@ -16,13 +16,22 @@ async def run_step1(page: Page) -> bool:
             wait_until="commit",
             timeout=60000,
         )
+        body = await page.evaluate("() => document.body ? document.body.innerText : ''")
+        if "アクセス集中" in body or "エラーが発生しました" in body:
+            raise Exception("SITE_OVERLOADED: Trang web Namco đang bị quá tải (Access Concentration).")
+            
         # Delay dài hơn để giả lập người dùng đọc trang chủ
         wait_ms = random.randint(3000, 5000)
         log.info(f"   Đã vào trang chủ Namco Parks. Đợi {wait_ms}ms...")
         await page.wait_for_timeout(wait_ms)
     except Exception as e:
+        if "SITE_OVERLOADED" in str(e): raise
         log.warning(f"   Vào trang chủ gặp lỗi: {e}. Thử lại...")
         await page.goto("https://parks2.bandainamco-am.co.jp/", wait_until="commit", timeout=60000)
+        
+        body = await page.evaluate("() => document.body ? document.body.innerText : ''")
+        if "アクセス集中" in body or "エラーが発生しました" in body:
+            raise Exception("SITE_OVERLOADED: Trang web Namco đang bị quá tải (Access Concentration).")
 
     log.info("2. Click link '新規会員登録' trên trang chủ...")
     connect_link = await page.wait_for_selector(
