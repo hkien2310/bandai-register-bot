@@ -50,6 +50,12 @@ COLUMN_ALIASES = {
     "data usage (mb)": "data_usage_mb",
     "dob":             "dob",
     "location":        "prefecture",
+    "token":           "ms_token",
+    "ms token":        "ms_token",
+    "ms_token":        "ms_token",
+    "uuid":            "ms_uuid",
+    "ms uuid":         "ms_uuid",
+    "ms_uuid":         "ms_uuid",
 }
 
 # Chỉ các giá trị status hợp lệ hiển thị trong sheet
@@ -217,8 +223,8 @@ class XlsxConnection:
                         parts = raw_email_cell.split("|")
                         email         = parts[0].strip()
                         email_password = parts[1].strip() if len(parts) > 1 else str(row_dict.get("email_password", "") or "").strip()
-                        ms_token      = parts[2].strip() if len(parts) > 2 else str(row_dict.get("ms_token", "") or "").strip()
-                        ms_uuid       = parts[3].strip() if len(parts) > 3 else str(row_dict.get("ms_uuid", "") or "").strip()
+                        ms_token      = parts[2].strip() if len(parts) > 2 else ""
+                        ms_uuid       = parts[3].strip() if len(parts) > 3 else ""
 
                         results.append({
                             "email": email,
