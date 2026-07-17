@@ -3,6 +3,7 @@ import asyncio
 import re
 from playwright.async_api import BrowserContext, Page
 from src.utils.logger import get_logger
+import src.config as config
 
 log = get_logger("email_reader_web")
 
