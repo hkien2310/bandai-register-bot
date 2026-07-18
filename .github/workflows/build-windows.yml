@@ -21,7 +21,6 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install gspread google-auth google-auth-oauthlib
         pip install pyinstaller
 
     - name: Install Playwright browsers
@@ -63,10 +62,17 @@ jobs:
           --hidden-import=playwright.async_api `
           --hidden-import=openpyxl `
           --hidden-import=openpyxl.cell._writer `
-          --hidden-import=gspread `
-          --hidden-import=google.auth `
-          --hidden-import=google.auth.transport.requests `
-          --hidden-import=google.oauth2.service_account `
+          --hidden-import=openpyxl.styles `
+          --hidden-import=openpyxl.styles.fonts `
+          --hidden-import=openpyxl.styles.fills `
+          --hidden-import=openpyxl.styles.alignment `
+          --hidden-import=openpyxl.utils `
+          --hidden-import=requests `
+          --hidden-import=urllib3 `
+          --hidden-import=urllib3.exceptions `
+          --hidden-import=dateutil `
+          --hidden-import=dateutil.parser `
+          --hidden-import=colorlog `
           --hidden-import=dotenv `
           --hidden-import=pycparser `
           --hidden-import=cffi `
