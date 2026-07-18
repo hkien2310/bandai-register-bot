@@ -105,6 +105,8 @@ async def main_async():
             log.info("✅ Không còn tài khoản nào có trạng thái PENDING/Trống trên Sheets. Hoàn tất!")
             break
 
+        config.SESSION_STATS["PENDING"] += len(emails_to_process)
+
         email_queue = Queue()
         for email_data in emails_to_process:
             email_queue.put(email_data)

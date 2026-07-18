@@ -45,6 +45,14 @@ class BrowserInstance:
             log.info("Khởi động trình duyệt không dùng proxy")
 
         executable_path = config.BROWSER_PATH if config.BROWSER_PATH else None
+        
+        # Sửa lỗi EACCES trên macOS khi truyền thư mục .app thay vì file thực thi
+        if executable_path and executable_path.endswith(".app"):
+            import platform
+            import os
+            if platform.system() == "Darwin":
+                app_name = os.path.basename(executable_path).replace(".app", "")
+                executable_path = os.path.join(executable_path, "Contents", "MacOS", app_name)
         log.info(f"Profile dir: {self.profile_dir}")
 
         base_args = [

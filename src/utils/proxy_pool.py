@@ -160,8 +160,7 @@ class ProxyPool:
                     alive_count = len(self.proxies) - len(self.dead_indices)
                     in_use_alive = len(self.in_use_indices - self.dead_indices)
                     if in_use_alive >= alive_count:
-                        log.warning("⚠️ Tất cả proxy sống đều đang được worker khác sử dụng. Không còn proxy rảnh!")
-                        return None, None
+                        return "WAIT", -1
                         
                     log.warning(f"Tất cả proxy sống đều đã đăng ký tối đa {config.MAX_ACCOUNTS_PER_PROXY} acc! Reset giới hạn (không reset proxy chết)...")
                     self.retired_indices.clear()

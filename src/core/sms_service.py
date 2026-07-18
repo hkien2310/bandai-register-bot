@@ -14,6 +14,8 @@ _apikey: str = ""
 _apikey_expires: float = 0.0
 _apikey_lock = threading.Lock()
 
+_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+
 def _get_apikey(force_refresh: bool = False) -> str:
     """Get apikey from cache or API. Thread-safe."""
     global _apikey, _apikey_expires
@@ -64,6 +66,7 @@ def _get_apikey(force_refresh: bool = False) -> str:
         resp = requests.post(
             f"{_BASE}/api/ext/getKey",
             json={"username": config.SMS_USERNAME, "password": config.SMS_PASSWORD},
+            headers=_HEADERS,
             timeout=15,
         )
         resp.raise_for_status()
@@ -119,9 +122,14 @@ def check_balance(force_refresh=False) -> int:
         resp = requests.get(
             f"{_BASE}/api/ext/balance",
             params={"apikey": apikey},
+            headers=_HEADERS,
             timeout=10,
         )
-        data = resp.json()
+        try:
+            data = resp.json()
+        except Exception as json_e:
+            log.error(f"❌ Phản hồi không phải JSON: {resp.status_code} - {resp.text[:200]}")
+            raise json_e
         if data.get("status") == "success":
             balance = data["balance"]
             log.info(f"💰 Số dư SMS: {balance:,} điểm/yên")
@@ -155,7 +163,7 @@ def order_phone(
             "server":    server     or config.SMS_SERVER,
             "country":   country    or config.SMS_COUNTRY,
         }
-        resp = requests.get(f"{_BASE}/api/ext/order", params=params, timeout=15)
+        resp = requests.get(f"{_BASE}/api/ext/order", params=params, headers=_HEADERS, timeout=15)
         resp.raise_for_status()
         return resp.json(), params
 
@@ -192,6 +200,7 @@ def order_phone(
                 get_resp = requests.get(
                     f"{_BASE}/api/ext/getSms",
                     params={"apikey": apikey, "pkey": pkey},
+                    headers=_HEADERS,
                     timeout=10,
                 )
                 get_data = get_resp.json()
@@ -206,7 +215,7 @@ def order_phone(
         if not phone or "xin số" in phone or not any(c.isdigit() for c in phone):
             log.error("❌ Không lấy được số điện thoại thực tế từ API sau 18s — đang hủy số hoàn tiền...")
             try:
-                requests.get(f"{_BASE}/api/ext/cancel", params={"apikey": apikey, "pkey": pkey}, timeout=10)
+                requests.get(f"{_BASE}/api/ext/cancel", params={"apikey": apikey, "pkey": pkey}, headers=_HEADERS, timeout=10)
             except Exception as ce:
                 log.warning(f"  Không thể hủy số: {ce}")
             raise RuntimeError("Không lấy được số điện thoại thực tế từ API!")
@@ -237,6 +246,7 @@ def poll_sms_otp(
             resp = requests.get(
                 f"{_BASE}/api/ext/getSms",
                 params={"apikey": apikey, "pkey": pkey},
+                headers=_HEADERS,
                 timeout=10,
             )
             data = resp.json()
@@ -286,6 +296,7 @@ def cancel(pkey: str) -> bool:
         resp = requests.get(
             f"{_BASE}/api/ext/cancel",
             params={"apikey": apikey, "pkey": pkey},
+            headers=_HEADERS,
             timeout=10,
         )
         data = resp.json()

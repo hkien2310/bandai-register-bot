@@ -12,7 +12,6 @@ log = get_logger("step3_bnid_register")
 async def human_delay(page: Page, min_ms: int = 800, max_ms: int = 2000):
     """Delay ngẫu nhiên giả lập hành động người dùng."""
     delay = random.randint(min_ms, max_ms)
-    log.debug(f"   [human delay] {delay}ms")
     await page.wait_for_timeout(delay)
 
 async def handle_email_otp(page: Page, email: str, email_password: str, since_ts: float, mail_page, refresh_token: str = None, client_id: str = None, otp_email: str = "", otp_pass: str = "", provider: str = ""):
@@ -62,7 +61,7 @@ async def handle_email_otp(page: Page, email: str, email_password: str, since_ts
     otp_selector = "input[name='authenticationCode'], input[name='code'], input[name='otp'], input[type='text']"
     await page.wait_for_selector(otp_selector, timeout=60000)
     otp_loc = page.locator(otp_selector).first
-    await otp_loc.fill(str(email_otp))
+    await otp_loc.fill(str(email_otp), timeout=15000)
     await human_delay(page, 500, 1000)
     await otp_loc.blur()  # Locator.blur() hoạt động đúng, kích hoạt cập nhật trạng thái nút
 
@@ -100,6 +99,16 @@ async def run_step3(page: Page, email: str, password: str, birthday: str, has_bn
             await page.bring_to_front()
     elif refresh_token and client_id:
         log.info(f"   Dùng DongVanFB API cho {email}. Bỏ qua bước mở tab web mail.")
+
+    # Kiểm tra xem Bandai Namco có trả về trang lỗi System Error (IP Ban / Quá tải) không
+    try:
+        page_text = await page.evaluate("() => document.body ? document.body.innerText : ''")
+        if "A system error has occurred" in page_text or "エラー" in page_text or "アクセス集中" in page_text:
+            log.error("❌ Bandai Namco trả về trang 'System Error' (Có thể do quá tải hoặc Ban IP).")
+            raise Exception("SITE_OVERLOADED: A system error has occurred.")
+    except Exception as e:
+        if "SITE_OVERLOADED" in str(e): raise
+        pass
     
     if has_bnid:
         log.info(f"--- THỰC HIỆN ĐĂNG NHẬP BANDAI NAMCO ID ({email}) ---")
@@ -107,13 +116,13 @@ async def run_step3(page: Page, email: str, password: str, birthday: str, has_bn
         await human_delay(page, 600, 1200)
 
         email_field = page.locator("input#mail, input[name='mail']")
-        await email_field.fill(email)
+        await email_field.fill(email, timeout=15000)
         await human_delay(page, 400, 800)
         await email_field.blur()
 
         pass_field = page.locator("input#pass, input[name='pass']")
         await human_delay(page, 600, 1200)
-        await pass_field.fill(password)
+        await pass_field.fill(password, timeout=15000)
         await human_delay(page, 400, 800)
         await pass_field.blur()
 
@@ -170,13 +179,13 @@ async def run_step3(page: Page, email: str, password: str, birthday: str, has_bn
     await human_delay(page, 800, 1500)
 
     email_field = page.locator("input#mail, input[name='mail']")
-    await email_field.fill(email)
+    await email_field.fill(email, timeout=15000)
     await human_delay(page, 500, 1000)
     await email_field.blur()
 
     await human_delay(page, 800, 1500)
     pass_field = page.locator("input#pass, input[name='pass']")
-    await pass_field.fill(password)
+    await pass_field.fill(password, timeout=15000)
     await human_delay(page, 500, 1000)
     await pass_field.blur()
 

@@ -96,6 +96,7 @@ class NamcoBotGUI:
 
         self.log_queue = queue.Queue()
         self.update_logs()
+        self.update_stats()
 
         # Override stdout/stderr để logger in ra GUI
         sys.stdout = TextRedirector(self.log_queue)
@@ -151,18 +152,27 @@ class NamcoBotGUI:
         self.stop_btn = ttk.Button(btn_frame, text="🛑 DỪNG LẠI", command=self.stop_bot, width=20, state=tk.DISABLED)
         self.stop_btn.pack(side=tk.LEFT, padx=5)
 
+        # Thống kê Frame (Row 9)
+        stats_frame = ttk.Frame(frame)
+        stats_frame.grid(row=9, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
+        self.stats_label = ttk.Label(stats_frame, text="📊 Pending: 0 | Processing: 0 | Success: 0 | Failed: 0", font=("Arial", 11, "bold"), foreground="#0052cc")
+        self.stats_label.pack(side=tk.LEFT)
+
         log_label_frame = ttk.Frame(frame)
-        log_label_frame.grid(row=9, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
+        log_label_frame.grid(row=10, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
         
         ttk.Label(log_label_frame, text="Tiến trình đang chạy:").pack(side=tk.LEFT)
         self.copy_btn = ttk.Button(log_label_frame, text="📋 Sao chép Log", command=self.copy_log)
-        self.copy_btn.pack(side=tk.RIGHT)
+        self.copy_btn.pack(side=tk.RIGHT, padx=2)
+        
+        self.clear_btn = ttk.Button(log_label_frame, text="🗑 Xoá Log", command=self.clear_log)
+        self.clear_btn.pack(side=tk.RIGHT, padx=2)
 
         self.log_listbox = tk.Listbox(frame, height=10, bg="#f0f0f0", fg="#333", font=("Arial", 11))
-        self.log_listbox.grid(row=10, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S))
+        self.log_listbox.grid(row=11, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S))
 
         frame.columnconfigure(1, weight=1)
-        frame.rowconfigure(10, weight=1)
+        frame.rowconfigure(11, weight=1)
 
     def choose_browser(self):
         path = filedialog.askopenfilename(title="Chọn file chạy trình duyệt (Chromium/Chrome)")
@@ -236,6 +246,18 @@ class NamcoBotGUI:
             self.log_listbox.see(tk.END)
         self.root.after(50, self.update_logs)
 
+    def update_stats(self):
+        try:
+            import src.config as bot_config
+            if hasattr(bot_config, "SESSION_STATS"):
+                stats = bot_config.SESSION_STATS
+                text = f"📊 Session - Pending: {stats.get('PENDING', 0)} | Processing: {stats.get('PROCESSING', 0)} | Success: {stats.get('SUCCESS', 0)} | Failed: {stats.get('FAILED', 0)}"
+                self.stats_label.config(text=text)
+        except Exception:
+            pass
+        # Update every 2 seconds
+        self.root.after(2000, self.update_stats)
+
     def save_settings(self):
         """Lưu toàn bộ cài đặt vào config.json duy nhất"""
         cfg = load_json_config()
@@ -274,6 +296,7 @@ class NamcoBotGUI:
 
         # Reset STOP_FLAG trực tiếp trên module đang chạy
         bot_config.STOP_FLAG = False
+        bot_config.SESSION_STATS = {"PENDING": 0, "PROCESSING": 0, "SUCCESS": 0, "FAILED": 0}
 
         self.start_btn.config(state=tk.DISABLED, text="⏳ ĐANG CHẠY...")
         self.stop_btn.config(state=tk.NORMAL, text="🛑 DỪNG LẠI")
@@ -362,6 +385,10 @@ class NamcoBotGUI:
             orig_text = self.copy_btn.cget("text")
             self.copy_btn.config(text="📋 ĐÃ SAO CHÉP!")
             self.root.after(1500, lambda: self.copy_btn.config(text=orig_text))
+
+    def clear_log(self):
+        """Xoá toàn bộ log trên giao diện."""
+        self.log_listbox.delete(0, tk.END)
 
     def on_close(self):
         """Lưu cấu hình và thoát app an toàn."""

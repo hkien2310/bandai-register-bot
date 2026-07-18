@@ -28,6 +28,7 @@ async def get_bandai_namco_otp_dongvanfb(
     }
     
     start_ts = time.time()
+    api_error_count = 0
     
     import requests
     import asyncio
@@ -55,8 +56,13 @@ async def get_bandai_namco_otp_dongvanfb(
                     messages = resp_json
                     
                 if isinstance(resp_json, dict) and "status" in resp_json and str(resp_json["status"]).lower() in ["error", "false"]:
-                    log.error(f"❌ DongVanFB API từ chối token (Lỗi: {resp_json}). Huỷ lấy OTP ngay lập tức!")
-                    return None
+                    api_error_count += 1
+                    if api_error_count >= 2:
+                        log.error(f"❌ DongVanFB API từ chối token liên tục (Lỗi: {resp_json}). Huỷ lấy OTP ngay lập tức!")
+                        return None
+                    else:
+                        log.warning(f"⚠️ DongVanFB API từ chối token (Lỗi: {resp_json}). Đang thử lại lần {api_error_count}...")
+                        messages = []
                 
                 if len(messages) == 0:
                     log.info(f"⏳ DongVanFB API: Chưa có thư mới, đang chờ...")
@@ -81,14 +87,28 @@ async def get_bandai_namco_otp_dongvanfb(
                             pass
                             
                     if "bandai" in from_addr or "banapassport" in from_addr or "bandai" in subject.lower():
-                        match = re.search(r'\b(\d{6})\b', subject + " " + message_body)
+                        # Lấy OTP bằng cách tìm authcode=123456 hoặc Authorization Code***123456
+                        match = re.search(r'authcode=(\d{6})', message_body)
+                        if not match:
+                            match = re.search(r'Authorization Code[^\d]*(\d{6})', message_body, re.IGNORECASE)
+                        if not match:
+                            match = re.search(r'認証コード[^\d]*(\d{6})', message_body, re.IGNORECASE)
+                        if not match:
+                            # Fallback: Quét 6 số ở phần cuối của body (tránh header rác của Microsoft)
+                            body_no_headers = message_body.split("MIME-Version: 1.0")[-1]
+                            match = re.search(r'\b(\d{6})\b', body_no_headers)
+                            
                         if match:
                             code = match.group(1)
                             log.info(f"✅ Đã parse OTP từ DongVanFB: {code}")
                             return code
             else:
-                log.error(f"❌ DongVanFB API trả về mã lỗi HTTP {resp.status_code}: {resp.text}. Huỷ lấy OTP ngay lập tức!")
-                return None
+                api_error_count += 1
+                if api_error_count >= 2:
+                    log.error(f"❌ DongVanFB API trả về mã lỗi HTTP {resp.status_code}: {resp.text}. Huỷ lấy OTP ngay lập tức!")
+                    return None
+                else:
+                    log.warning(f"⚠️ DongVanFB API trả về mã lỗi HTTP {resp.status_code}. Đang thử lại lần {api_error_count}...")
 
         except Exception as e:
             log.warning(f"DongVanFB API error: {e}")

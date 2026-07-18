@@ -17,8 +17,10 @@ async def run_step1(page: Page) -> bool:
             timeout=60000,
         )
         body = await page.evaluate("() => document.body ? document.body.innerText : ''")
-        if "アクセス集中" in body or "エラーが発生しました" in body:
-            raise Exception("SITE_OVERLOADED: Trang web Namco đang bị quá tải (Access Concentration).")
+        if "アクセス集中" in body or "エラーが発生しました" in body or "A system error has occurred" in body:
+            raise Exception("SITE_OVERLOADED: Trang web Namco đang bị quá tải hoặc lỗi hệ thống.")
+        if "Access Denied" in body or "access denied" in body.lower():
+            raise Exception("IP_BANNED: Truy cập bị từ chối (có thể do IP bị chặn).")
             
         # Delay dài hơn để giả lập người dùng đọc trang chủ
         wait_ms = random.randint(3000, 5000)
@@ -30,8 +32,10 @@ async def run_step1(page: Page) -> bool:
         await page.goto("https://parks2.bandainamco-am.co.jp/", wait_until="commit", timeout=60000)
         
         body = await page.evaluate("() => document.body ? document.body.innerText : ''")
-        if "アクセス集中" in body or "エラーが発生しました" in body:
-            raise Exception("SITE_OVERLOADED: Trang web Namco đang bị quá tải (Access Concentration).")
+        if "アクセス集中" in body or "エラーが発生しました" in body or "A system error has occurred" in body:
+            raise Exception("SITE_OVERLOADED: Trang web Namco đang bị quá tải hoặc lỗi hệ thống.")
+        if "Access Denied" in body or "access denied" in body.lower():
+            raise Exception("IP_BANNED: Truy cập bị từ chối (có thể do IP bị chặn).")
 
     log.info("2. Click link '新規会員登録' trên trang chủ...")
     connect_link = await page.wait_for_selector(

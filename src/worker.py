@@ -22,10 +22,26 @@ class RegistrationWorker:
         self.proxy_pool = proxy_pool
         self.sheets_manager = sheets_manager
 
+    def _finish_task(self, status):
+        config.SESSION_STATS["PROCESSING"] = max(0, config.SESSION_STATS["PROCESSING"] - 1)
+        if status == "SUCCESS":
+            config.SESSION_STATS["SUCCESS"] += 1
+        elif status in ("FAILED", "ERROR", "ABORTED"):
+            config.SESSION_STATS["FAILED"] += 1
+        elif status == "PENDING":
+            config.SESSION_STATS["PENDING"] += 1
+        self.email_queue.task_done()
+
     def run(self):
         """Hàm chạy của luồng Thread."""
         set_worker_prefix(f"Worker-{self.worker_id}")
         log.info("Worker started.")
+        
+        import time, random
+        delay_time = random.uniform(1.0, 3.0) * self.worker_id
+        if delay_time > 0:
+            log.info(f"⏳ Đợi {delay_time:.1f}s trước khi bắt đầu (giãn cách các luồng khởi động)...")
+            time.sleep(delay_time)
         
         while True:
             if config.STOP_FLAG:
@@ -38,6 +54,9 @@ class RegistrationWorker:
                 email = email_data["email"]
                 email_password = email_data.get("email_password", "")
                 raw_email = email_data.get("raw_email", email)
+                
+                config.SESSION_STATS["PENDING"] = max(0, config.SESSION_STATS["PENDING"] - 1)
+                config.SESSION_STATS["PROCESSING"] += 1
             except Empty:
                 log.info("Queue trống. Worker kết thúc.")
                 break
@@ -107,7 +126,7 @@ class RegistrationWorker:
                 result_data["error_details"] = error_msg
                 self.sheets_manager.update_email_status(raw_email, "ERROR")
                 self.sheets_manager.append_account(result_data)
-                self.queue_processor.on_task_done()
+                self._finish_task(result_data["status"])
                 continue
 
             # Kiểm tra trên Sheet Accounts xem email này đã có BNID chưa
@@ -142,13 +161,21 @@ class RegistrationWorker:
                     while proxy_attempts < max_proxy_attempts:
                         proxy_attempts += 1
                         proxy, proxy_idx = self.proxy_pool.get_next_proxy()
+                        
+                        if proxy == "WAIT":
+                            log.info("⏳ Tất cả proxy đang được sử dụng. Chờ 5s...")
+                            import time
+                            for _ in range(10):
+                                if config.STOP_FLAG: break
+                                time.sleep(0.5)
+                            proxy_attempts -= 1  # Không tính lượt retry này
+                            continue
+                            
                         proxy_str = proxy["raw"] if proxy else "Direct"
                         
                         if not proxy:
-                            log.error("❌ KHO PROXY ĐÃ CẠN KIỆT (CHẾT CHÙM). TẠM DỪNG TOÀN BỘ!")
-                            with self.email_queue.mutex:
-                                self.email_queue.queue.clear()
-                            break  # Hết proxy
+                            log.error("❌ KHO PROXY ĐÃ CẠN KIỆT (CHẾT CHÙM).")
+                            break  # Hết proxy, sẽ raise exception bên dưới
                             
                         log.info(f"🔄 Đang kiểm tra proxy ({proxy_attempts}/{max_proxy_attempts}): {proxy_str}...")
                         requests_proxy = proxy_str
@@ -164,19 +191,18 @@ class RegistrationWorker:
                         }
                         try:
                             r = requests.get("https://parks2.bandainamco-am.co.jp/", proxies=proxies_dict, timeout=10, verify=False)
-                            if "アクセス集中" in r.text or "エラーが発生しました" in r.text:
+                            if "アクセス集中" in r.text:
                                 raise Exception("SITE_OVERLOADED")
+                            if "Access Denied" in r.text or "access denied" in r.text.lower() or "エラーが発生しました" in r.text:
+                                raise Exception("IP_BANNED")
                             
                             r.raise_for_status()
                             log.info(f"✅ Proxy còn sống và truy cập được Namco Parks!")
                             break
                         except Exception as e:
-                            if "SITE_OVERLOADED" in str(e) or (hasattr(e, 'response') and e.response is not None and e.response.status_code in [502, 503, 504]):
-                                log.error(f"❌ Server Namco đang quá tải (アクセス集中). TỰ ĐỘNG DỪNG TOOL.")
+                            if "SITE_OVERLOADED" in str(e):
+                                log.error(f"❌ Server Namco đang quá tải (アクセス集中). Tạm thời đánh dấu account này PENDING.")
                                 self.sheets_manager.update_email_status(raw_email, "PENDING")
-                                if self.email_queue is not None:
-                                    with self.email_queue.mutex:
-                                        self.email_queue.queue.clear()
                                 break
                                 
                             log.warning(f"❌ Proxy chết ({type(e).__name__}), đổi proxy khác...")
@@ -196,11 +222,17 @@ class RegistrationWorker:
                 try:
                     if config.USE_PROXY and not proxy:
                         if len(self.proxy_pool.proxies) == 0:
+                            result_data["status"] = "FAILED"
+                            result_data["error_details"] = "Kho proxy cạn kiệt"
                             raise Exception("KHO_PROXY_CAN_KIET")
                         elif self.email_queue.empty():
                             # Nếu queue bị clear (do site quá tải hoặc cạn proxy), thoát nhẹ nhàng
+                            result_data["status"] = "PENDING"
+                            result_data["error_details"] = "Dừng đột ngột"
                             break
                         else:
+                            result_data["status"] = "FAILED"
+                            result_data["error_details"] = "Không tìm được proxy sống sau 3 lần thử."
                             raise Exception("Không tìm được proxy sống sau 3 lần thử.")
                     try:
                         if not hasattr(config, "ACTIVE_WORKERS"):
@@ -266,11 +298,26 @@ class RegistrationWorker:
 
                     # ─── Lỗi quá tải Server Namco ───
                     if "SITE_OVERLOADED" in error_msg:
-                        log.warning(f"❌ Server Namco đang quá tải (アクセス集中). Tự động bỏ qua account này và chuyển trạng thái thành PENDING để thử lại sau.")
-                        result_data["status"] = "PENDING"
-                        result_data["error_details"] = "Server Namco quá tải (Access Concentration)"
+                        log.warning(f"❌ Server Namco đang quá tải hoặc lỗi hệ thống. Tự động bỏ qua account này và chuyển trạng thái thành FAILED.")
+                        result_data["status"] = "FAILED"
+                        result_data["error_details"] = "Server Namco quá tải hoặc lỗi hệ thống"
                         self.proxy_pool.release_proxy(proxy_idx)
                         break
+
+                    # ─── Lỗi Band IP ───
+                    if "IP_BANNED" in error_msg or "Access Denied" in error_msg:
+                        if not config.USE_PROXY:
+                            log.warning("🚫 BỊ CHẶN IP KHI CHẠY KHÔNG DÙNG PROXY! (Đã tắt sleep 15m theo yêu cầu)")
+                            result_data["status"] = "FAILED"
+                            result_data["error_details"] = "IP bị chặn (Không dùng proxy)"
+                            self.sheets_manager.update_email_status(raw_email, "FAILED")
+                            break
+                        else:
+                            log.warning("❌ Proxy bị Ban IP. Đánh dấu chết và chuyển proxy khác...")
+                            self.proxy_pool.mark_failed(proxy_idx)
+                            # Đẩy xuống dưới để tiếp tục vòng lặp retry với proxy mới
+                            # Gán error để bên dưới mark is_proxy_error = True
+                            error_msg += " net::ERR_PROXY_BANNED"
 
                     if config.STOP_FLAG:
                         log.warning("🛑 Nhận lệnh STOP, huỷ bỏ xử lý lỗi và thoát luồng.")
@@ -339,12 +386,21 @@ class RegistrationWorker:
             # Kết quả cuối cùng — luôn ghi vào Accounts (upsert)
             self.sheets_manager.update_email_status(raw_email, result_data["status"])
             self.sheets_manager.append_account(result_data)
-            self.email_queue.task_done()
+            self._finish_task(result_data["status"])
             log.info(f"Kết thúc xử lý tài khoản {email}\n" + "-"*50)
 
             if config.STOP_FLAG:
                 log.warning("🛑 Nhận lệnh STOP hoặc kịch bản dừng (như quá tải), kết thúc luồng.")
                 break
+                
+            # Đợi 45 giây độc lập cho mỗi worker trước khi làm account tiếp theo
+            if not self.email_queue.empty():
+                log.info("⏳ Tạm nghỉ 45 giây trước khi bốc account tiếp theo...")
+                import time
+                for _ in range(90):
+                    if config.STOP_FLAG:
+                        break
+                    time.sleep(0.5)
 
     async def _process_account_async(self, email, password, nickname, birthday, prefecture, proxy, result_data, has_bnid_local, email_password: str = "", refresh_token: str = "", client_id: str = "", otp_email: str = "", otp_pass: str = "", provider: str = ""):
         """Chạy các bước đăng ký tuần tự trong cùng một event loop."""
@@ -393,6 +449,8 @@ class RegistrationWorker:
                 self.sheets_manager.append_account(result_data)
             except Exception as e:
                 err = str(e)
+                if "IP_BANNED" in err:
+                    raise e
                 if "Không nhận được OTP email" in err:
                     raise Exception("Lỗi Bước 3 (OTP Email): Không nhận được OTP từ Bandai Namco sau 120s.")
                 elif "EMAIL_ALREADY_IN_USE" in err:
@@ -482,7 +540,7 @@ class RegistrationWorker:
                         # Kiểm tra xem trang có báo lỗi quá tải không
                         try:
                             body_text = await page.evaluate("() => document.body ? document.body.innerText : ''")
-                            if "アクセス集中" in body_text or "エラーが発生しました" in body_text:
+                            if "アクセス集中" in body_text or "エラーが発生しました" in body_text or "A system error has occurred" in body_text:
                                 is_overloaded = True
                         except:
                             pass

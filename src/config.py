@@ -86,3 +86,6 @@ ACTIVE_SHEET            = _get("active_sheet", "Outlooks")
 
 # Biến cờ hiệu toàn cục để ngắt bot (Stop button)
 STOP_FLAG = False
+
+# Session stats
+SESSION_STATS = {"PENDING": 0, "PROCESSING": 0, "SUCCESS": 0, "FAILED": 0}
