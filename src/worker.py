@@ -133,7 +133,7 @@ class RegistrationWorker:
 
             # Kiểm tra trên Sheet Accounts xem email này đã có BNID chưa
             existing_status = self.sheets_manager.get_account_status(email)
-            has_bnid_local = existing_status in ("HAS_BNID",)
+            has_bnid_local = False  # existing_status in ("HAS_BNID",) - Tạm thời comment luồng login để luôn chạy đăng ký
             if has_bnid_local:
                 log.info(f"📋 Sheet Accounts cho thấy {email} đã có BNID (status={existing_status}). Sẽ chạy luồng LOGIN.")
             
