@@ -30,6 +30,8 @@ class RegistrationWorker:
             config.SESSION_STATS["FAILED"] += 1
         elif status == "PENDING":
             config.SESSION_STATS["PENDING"] += 1
+        elif status == "HAS_BNID":
+            config.SESSION_STATS["HAS_BNID"] = config.SESSION_STATS.get("HAS_BNID", 0) + 1
         self.email_queue.task_done()
 
     def run(self):

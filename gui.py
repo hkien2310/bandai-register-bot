@@ -251,7 +251,7 @@ class NamcoBotGUI:
             import src.config as bot_config
             if hasattr(bot_config, "SESSION_STATS"):
                 stats = bot_config.SESSION_STATS
-                text = f"📊 Session - Pending: {stats.get('PENDING', 0)} | Processing: {stats.get('PROCESSING', 0)} | Success: {stats.get('SUCCESS', 0)} | Failed: {stats.get('FAILED', 0)}"
+                text = f"📊 Session - Pending: {stats.get('PENDING', 0) + stats.get('HAS_BNID', 0)} | Processing: {stats.get('PROCESSING', 0)} | Success: {stats.get('SUCCESS', 0)} | Failed: {stats.get('FAILED', 0)}"
                 self.stats_label.config(text=text)
         except Exception:
             pass
@@ -296,7 +296,7 @@ class NamcoBotGUI:
 
         # Reset STOP_FLAG trực tiếp trên module đang chạy
         bot_config.STOP_FLAG = False
-        bot_config.SESSION_STATS = {"PENDING": 0, "PROCESSING": 0, "SUCCESS": 0, "FAILED": 0}
+        bot_config.SESSION_STATS = {"PENDING": 0, "PROCESSING": 0, "SUCCESS": 0, "FAILED": 0, "HAS_BNID": 0}
 
         self.start_btn.config(state=tk.DISABLED, text="⏳ ĐANG CHẠY...")
         self.stop_btn.config(state=tk.NORMAL, text="🛑 DỪNG LẠI")
