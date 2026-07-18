@@ -276,15 +276,14 @@ async def run_step3(page: Page, email: str, password: str, birthday: str, has_bn
             timeout=60000
         )
     except Exception as e:
-        log.error("Lỗi Timeout khi đợi input#id_year. Đang chụp ảnh màn hình để debug...")
+        log.error(f"Lỗi Timeout khi đợi input#id_year tại URL: {page.url}")
         try:
-            import os
-            from core.config import get_project_root
-            screenshot_path = os.path.join(get_project_root(), "data", f"timeout_step3_{email}.png")
-            await page.screenshot(path=screenshot_path, full_page=True)
+            from src import config as _cfg
+            screenshot_path = str(_cfg.DATA_DIR / f"timeout_step3_{email}.png")
+            await asyncio.wait_for(page.screenshot(path=screenshot_path, full_page=True), timeout=5.0)
             log.info(f"Đã lưu ảnh màn hình lỗi tại: {screenshot_path}")
         except Exception as img_e:
-            log.error(f"Không thể chụp ảnh màn hình: {img_e}")
+            log.debug(f"Không thể chụp ảnh màn hình: {img_e}")
         raise e
 
     await human_delay(page, 1000, 2000)
