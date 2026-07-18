@@ -6,4 +6,7 @@ requests-oauthlib==2.0.0
 cffi==2.0.0
 cryptography==49.0.0
 pycparser==3.0
+gspread>=6.0.0
+google-auth>=2.0.0
+google-auth-oauthlib>=1.0.0
 pyinstaller==6.21.0
