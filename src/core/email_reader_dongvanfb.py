@@ -74,34 +74,46 @@ async def get_bandai_namco_otp_dongvanfb(
                     subject = str(msg.get("subject", ""))
                     message_body = str(msg.get("message", ""))
                     msg_date_str = str(msg.get("date", ""))
-                    
+                    api_code = str(msg.get("code", "")).strip()  # Field code API tự parse sẵn
+
+                    log.debug(f"  📨 [{msg_date_str}] from={from_addr} | subject={subject[:50]} | api_code={api_code!r}")
+
                     if since_ts and msg_date_str:
                         try:
                             import datetime
-                            # format: HH:MM - DD/MM/YYYY
+                            # format: HH:MM - DD/MM/YYYY — API trả về giờ Việt Nam (UTC+7)
                             dt = datetime.datetime.strptime(msg_date_str, "%H:%M - %d/%m/%Y")
-                            msg_ts = dt.timestamp()
-                            if msg_ts < since_ts - 600: # Cho phép chênh lệch 10 phút
+                            # Coi như UTC+7, convert sang UTC timestamp để so sánh với since_ts (UTC)
+                            msg_ts = dt.timestamp() - (7 * 3600)
+                            if msg_ts < since_ts - 600:  # Cho phép chênh lệch 10 phút
+                                log.debug(f"  ⏩ Bỏ qua email cũ: msg_ts={msg_ts:.0f} < since_ts-600={since_ts-600:.0f}")
                                 continue
                         except Exception:
                             pass
                             
                     if "bandai" in from_addr or "banapassport" in from_addr or "bandai" in subject.lower():
-                        # Lấy OTP bằng cách tìm authcode=123456 hoặc Authorization Code***123456
+                        log.info(f"  📧 Email Bandai tìm thấy! from={from_addr} | subject={subject[:60]}")
+
+                        # Ưu tiên dùng field `code` mà API đã parse sẵn
+                        if api_code and api_code.isdigit() and len(api_code) == 6:
+                            log.info(f"✅ Lấy OTP từ field `code` của DongVanFB API: {api_code}")
+                            return api_code
+
+                        # Tự parse từ body HTML nếu API chưa extract
                         match = re.search(r'authcode=(\d{6})', message_body)
                         if not match:
                             match = re.search(r'Authorization Code[^\d]*(\d{6})', message_body, re.IGNORECASE)
                         if not match:
                             match = re.search(r'認証コード[^\d]*(\d{6})', message_body, re.IGNORECASE)
                         if not match:
-                            # Fallback: Quét 6 số ở phần cuối của body (tránh header rác của Microsoft)
-                            body_no_headers = message_body.split("MIME-Version: 1.0")[-1]
-                            match = re.search(r'\b(\d{6})\b', body_no_headers)
-                            
+                            match = re.search(r'\b(\d{6})\b', message_body)
+
                         if match:
                             code = match.group(1)
-                            log.info(f"✅ Đã parse OTP từ DongVanFB: {code}")
+                            log.info(f"✅ Đã parse OTP từ body DongVanFB: {code}")
                             return code
+                        else:
+                            log.warning(f"  ⚠️ Email Bandai tìm thấy nhưng không parse được OTP! Body length={len(message_body)}")
             else:
                 api_error_count += 1
                 if api_error_count >= 2:
