@@ -81,12 +81,14 @@ async def get_bandai_namco_otp_dongvanfb(
                     if since_ts and msg_date_str:
                         try:
                             import datetime
-                            # format: HH:MM - DD/MM/YYYY — API trả về giờ Việt Nam (UTC+7)
+                            # DongVanFB luôn trả về giờ Việt Nam (UTC+7), bất kể proxy dùng ở đâu
+                            # Dùng timezone tường minh để so sánh đúng với since_ts (UTC unix)
+                            vn_tz = datetime.timezone(datetime.timedelta(hours=7))
                             dt = datetime.datetime.strptime(msg_date_str, "%H:%M - %d/%m/%Y")
-                            # Coi như UTC+7, convert sang UTC timestamp để so sánh với since_ts (UTC)
-                            msg_ts = dt.timestamp() - (7 * 3600)
+                            dt_aware = dt.replace(tzinfo=vn_tz)
+                            msg_ts = dt_aware.timestamp()  # Luôn cho ra UTC timestamp đúng
                             if msg_ts < since_ts - 600:  # Cho phép chênh lệch 10 phút
-                                log.debug(f"  ⏩ Bỏ qua email cũ: msg_ts={msg_ts:.0f} < since_ts-600={since_ts-600:.0f}")
+                                log.debug(f"  ⏩ Bỏ qua email cũ: {msg_date_str} (msg_ts={msg_ts:.0f} < since_ts-600={since_ts-600:.0f})")
                                 continue
                         except Exception:
                             pass
