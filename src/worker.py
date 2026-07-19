@@ -332,13 +332,18 @@ class RegistrationWorker:
                     NO_RETRY_KEYWORDS = [
                         "EMAIL_ALREADY_IN_USE",          # Email đã đăng ký rồi
                         "Email đã được sử dụng",         # Thông báo tiếng Việt
+                        "HAS_BNID",                      # Đã có BNID, không cần retry
+                        "passkeyInfo",                   # Đã đăng nhập được → có BNID
                         "KeyboardInterrupt",             # User tự tắt
                     ]
                     is_permanent = any(kw in error_msg for kw in NO_RETRY_KEYWORDS)
                     
                     if is_permanent:
                         log.error(f"🚫 Lỗi KHÔNG THỂ RETRY: {error_msg[:200]}")
-                        if "EMAIL_ALREADY_IN_USE" in error_msg or "Email đã được sử dụng" in error_msg:
+                        if "HAS_BNID" in error_msg or "passkeyInfo" in error_msg:
+                            result_data["status"] = "HAS_BNID"
+                            result_data["error_details"] = "Đã có BNID, bỏ qua retry"
+                        elif "EMAIL_ALREADY_IN_USE" in error_msg or "Email đã được sử dụng" in error_msg:
                             result_data["status"] = "ABORTED"
                             result_data["error_details"] = "Email đã được sử dụng"
                         else:
