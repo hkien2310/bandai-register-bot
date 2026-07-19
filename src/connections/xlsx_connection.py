@@ -218,7 +218,7 @@ class XlsxConnection:
                     if not raw_email_cell:
                         continue
                     status = str(row_dict.get("status", "") or "").strip().upper()
-                    if status in ("", "PENDING", "HAS_BNID"):
+                    if status in ("", "PENDING"):
                         # Parse pipe-separated format
                         parts = raw_email_cell.split("|")
                         email         = parts[0].strip()
