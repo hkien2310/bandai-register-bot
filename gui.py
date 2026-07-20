@@ -250,6 +250,12 @@ class NamcoBotGUI:
                 self.log_listbox.delete(0)
 
             self.log_listbox.see(tk.END)
+            
+        import src.config as bot_config
+        if getattr(bot_config, "STOP_FLAG", True) and str(self.start_btn['state']) == tk.DISABLED:
+            self.start_btn.config(state=tk.NORMAL, text="🚀 BẮT ĐẦU CHẠY")
+            self.stop_btn.config(state=tk.DISABLED, text="🛑 DỪNG LẠI")
+            
         self.root.after(50, self.update_logs)
 
     def update_stats(self):
@@ -360,25 +366,16 @@ class NamcoBotGUI:
             main.main()
         except SystemExit as e:
             code = e.code
-            def update_sysexit(c=code):
-                if c and c != 0:
-                    self.log_listbox.insert(tk.END, f"❌ Bot thoát với mã lỗi: {c}")
-                else:
-                    self.log_listbox.insert(tk.END, "✅ Bot đã thoát thành công.")
-                self.log_listbox.see(tk.END)
-            self.root.after(0, update_sysexit)
+            if code and code != 0:
+                self.log_queue.put(f"❌ Bot thoát với mã lỗi: {code}")
+            else:
+                self.log_queue.put("✅ Bot đã thoát thành công.")
         except Exception as e:
-            def update_err(err=str(e)):
-                self.log_listbox.insert(tk.END, f"❌ Lỗi: {err}")
-                self.log_listbox.see(tk.END)
-            self.root.after(0, update_err)
+            self.log_queue.put(f"❌ Lỗi: {str(e)}")
         finally:
-            def update_done():
-                self.start_btn.config(state=tk.NORMAL, text="🚀 BẮT ĐẦU CHẠY")
-                self.stop_btn.config(state=tk.DISABLED, text="🛑 DỪNG LẠI")
-                self.log_listbox.insert(tk.END, "✅ Trạng thái: Đã hoàn tất công việc!")
-                self.log_listbox.see(tk.END)
-            self.root.after(0, update_done)
+            self.log_queue.put("✅ Trạng thái: Đã hoàn tất công việc!")
+            import src.config as bot_config
+            bot_config.STOP_FLAG = True
 
     def prefetch_numbers_gui(self):
         count = simpledialog.askinteger("Tải trước số", "Nhập số lượng số điện thoại muốn tải trước:", minvalue=1, maxvalue=500, initialvalue=10)
