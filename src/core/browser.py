@@ -22,7 +22,8 @@ class BrowserInstance:
         self.cleanup_profile_dir()
         self.profile_dir.mkdir(parents=True, exist_ok=True)
 
-        self.playwright = await async_playwright().start()
+        self._playwright_cm = async_playwright()
+        self.playwright = await self._playwright_cm.__aenter__()
 
         # Thêm instance vào ACTIVE_BROWSERS để cho phép GUI đóng khẩn cấp khi người dùng bấm Stop
         if not hasattr(config, "ACTIVE_BROWSERS"):
@@ -179,10 +180,11 @@ class BrowserInstance:
 
         if self.playwright:
             try:
-                await asyncio.wait_for(self.playwright.stop(), timeout=5.0)
+                await asyncio.wait_for(self._playwright_cm.__aexit__(None, None, None), timeout=5.0)
             except Exception as e:
                 log.debug(f"Lỗi khi stop playwright ({type(e).__name__}): {e}")
             self.playwright = None
+            self._playwright_cm = None
 
         # Xóa khỏi ACTIVE_BROWSERS
         if hasattr(config, "ACTIVE_BROWSERS") and self in config.ACTIVE_BROWSERS:
