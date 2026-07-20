@@ -24,10 +24,6 @@ jobs:
         pip install -r requirements.txt
         pip install pyinstaller
 
-    - name: Install Playwright browsers
-      run: |
-        playwright install chromium --with-deps
-
     - name: Generate embedded secrets
       shell: bash
       env:
@@ -85,36 +81,9 @@ jobs:
           --collect-all openpyxl `
           gui.py
 
-    - name: Bundle Playwright Chromium into dist
-      shell: pwsh
-      run: |
-        # Tìm thư mục Playwright cache trên Windows
-        $playwrightDir = "$env:USERPROFILE\AppData\Local\ms-playwright"
-        if (Test-Path $playwrightDir) {
-          Write-Host "Copying Playwright browsers from $playwrightDir ..."
-          $dest = "dist\NamcoBot\playwright-browsers"
-          New-Item -ItemType Directory -Force -Path $dest | Out-Null
-          # Chỉ copy chromium để tránh artifact quá nặng
-          $chromiumDirs = Get-ChildItem -Path $playwrightDir -Directory | Where-Object { $_.Name -like "chromium*" }
-          foreach ($dir in $chromiumDirs) {
-            Write-Host "  Copying $($dir.FullName) ..."
-            Copy-Item -Path $dir.FullName -Destination $dest -Recurse -Force
-          }
-          Write-Host "Done bundling Playwright browsers."
-        } else {
-          Write-Host "WARNING: Playwright dir not found at $playwrightDir"
-        }
-
-    - name: Set PLAYWRIGHT_BROWSERS_PATH in dist
-      shell: bash
-      run: |
-        # Tạo file .env để NamcoBot tự biết chỗ tìm browser
-        echo "PLAYWRIGHT_BROWSERS_PATH=playwright-browsers" >> dist/NamcoBot/.env
-
     - name: Create data directory
       shell: bash
-      run: |
-        mkdir -p dist/NamcoBot/data
+      run: mkdir -p dist/NamcoBot/data
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
