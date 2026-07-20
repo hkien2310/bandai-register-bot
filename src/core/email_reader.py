@@ -31,7 +31,7 @@ async def get_bandai_namco_otp(
     
     if since_ts is None:
         import time
-        since_ts = time.time()
+        since_ts = time.time() - 30
         
     if provider == "outlooks":
         if refresh_token and client_id:

@@ -1,15 +1,15 @@
 import logging
 import sys
-import threading
+import contextvars
 from pathlib import Path
 
-_thread_local = threading.local()
+_worker_prefix: contextvars.ContextVar[str] = contextvars.ContextVar('worker_prefix', default='')
 
 def set_worker_prefix(prefix: str):
-    _thread_local.worker_prefix = prefix
+    _worker_prefix.set(prefix)
 
 def get_worker_prefix() -> str:
-    return getattr(_thread_local, "worker_prefix", "")
+    return _worker_prefix.get('')
 
 class WorkerPrefixFilter(logging.Filter):
     def filter(self, record):

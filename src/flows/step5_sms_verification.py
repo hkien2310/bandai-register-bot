@@ -117,14 +117,24 @@ async def run_step5(page: Page, phone: str, pkey: str) -> str:
                 
                 # Chờ trang web chuyển hướng sau khi submit OTP
                 try:
-                    await page.wait_for_url("**/top.html*", timeout=60000)
-                    log.info(f"   [Màn hình SMS OTP] ✅ Đã hoàn thành màn hình SMS OTP. Trang đích an toàn: {page.url}")
-                    return "SUCCESS"
-                except Exception:
-                    log.error(f"❌ Lỗi: Sau khi nhập OTP, không thấy về trang top.html! URL hiện tại: {page.url}")
-                    sc_path = str(config.DATA_DIR / f"err_sms_otp_fail_{int(time.time())}.png")
-                    await page.screenshot(path=sc_path)
-                    raise RuntimeError("SMS OTP verification failed: Không về được trang top.html")
+                    for _ in range(60):
+                        if "top.html" in page.url or "member_mypage.html" in page.url:
+                            break
+                        await page.wait_for_timeout(1000)
+
+                    if "top.html" in page.url or "member_mypage.html" in page.url:
+                        log.info(f"   [Màn hình SMS OTP] ✅ Đã hoàn thành màn hình SMS OTP. Trang đích an toàn: {page.url}")
+                        return "SUCCESS"
+                    else:
+                        log.error(f"❌ Lỗi: Sau khi nhập OTP, không thấy về trang đích! URL hiện tại: {page.url}")
+                        sc_path = str(config.DATA_DIR / f"err_sms_otp_fail_{int(time.time())}.png")
+                        await page.screenshot(path=sc_path)
+                        raise RuntimeError("SMS OTP verification failed: Không về được trang đích")
+                except Exception as e:
+                    if isinstance(e, RuntimeError) and "SMS OTP verification failed" in str(e):
+                        raise e
+                    log.warning(f"Lỗi khi đợi trang chuyển hướng: {e}")
+                    raise RuntimeError("SMS OTP verification failed: Lỗi khi đợi trang chuyển hướng")
             else:
                 log.warning(f"   Hết timeout ({config.SMS_OTP_TIMEOUT}s) chưa có SMS OTP.")
                 # Hủy số ngay lập tức trên API để được refund tiền
@@ -147,6 +157,7 @@ async def run_step5(page: Page, phone: str, pkey: str) -> str:
             if "SMS_OTP_TIMEOUT" in str(e):
                 raise e
             log.error(f"   Lỗi poll SMS OTP: {e}")
+            raise e
     else:
         log.info("   SMS_ENABLED=false hoặc pkey=MANUAL. Bỏ qua tự động lấy OTP SMS.")
         # Nếu chạy thủ công, vẫn cần dừng để người dùng thao tác

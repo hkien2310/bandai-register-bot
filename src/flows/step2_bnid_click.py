@@ -13,7 +13,7 @@ async def run_step2(page: Page, has_bnid: bool = False) -> bool:
         log.warning(f"   URL hiện tại không khớp: {page.url}. Di chuyển trực tiếp...")
         await page.goto(
             "https://parks2.bandainamco-am.co.jp/ext/bandainamco_id_connect.html",
-            wait_until="commit",
+            wait_until="domcontentloaded",
             timeout=30000,
         )
 

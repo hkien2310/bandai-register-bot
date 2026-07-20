@@ -13,7 +13,7 @@ async def run_step1(page: Page) -> bool:
     try:
         await page.goto(
             "https://parks2.bandainamco-am.co.jp/",
-            wait_until="commit",
+            wait_until="domcontentloaded",
             timeout=60000,
         )
         body = await page.evaluate("() => document.body ? document.body.innerText : ''")
@@ -29,7 +29,7 @@ async def run_step1(page: Page) -> bool:
     except Exception as e:
         if "SITE_OVERLOADED" in str(e): raise
         log.warning(f"   Vào trang chủ gặp lỗi: {e}. Thử lại...")
-        await page.goto("https://parks2.bandainamco-am.co.jp/", wait_until="commit", timeout=60000)
+        await page.goto("https://parks2.bandainamco-am.co.jp/", wait_until="domcontentloaded", timeout=60000)
         
         body = await page.evaluate("() => document.body ? document.body.innerText : ''")
         if "アクセス集中" in body or "エラーが発生しました" in body or "A system error has occurred" in body:

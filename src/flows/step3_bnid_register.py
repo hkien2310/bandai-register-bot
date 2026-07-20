@@ -1,6 +1,7 @@
 import time
 import random
 import re
+import asyncio
 from playwright.async_api import Page
 import src.config as config
 from src.core.email_reader import get_bandai_namco_otp
@@ -44,7 +45,7 @@ async def handle_email_otp(page: Page, email: str, email_password: str, since_ts
             sc_path = str(config.DATA_DIR / f"err_email_otp_{int(time.time())}.png")
             try:
                 import asyncio
-                await asyncio.wait_for(page.screenshot(path=sc_path), timeout=5.0)
+                await page.screenshot(path=sc_path, timeout=5000)
             except Exception:
                 pass
         log.error("   [Màn hình OTP] Thất bại: Không lấy được OTP từ email.")
@@ -135,28 +136,128 @@ async def run_step3(page: Page, email: str, password: str, birthday: str, has_bn
         except Exception:
             pass
 
-        # === THÊM LOGIC KIỂM TRA AUTH CODE (OTP) TẠI ĐÂY ===
-        await page.wait_for_timeout(1500)
+        # === KIỂM TRA LỖI SAU KHI LOGIN ===
+        await page.wait_for_timeout(2000)
+        try:
+            page_text = await page.evaluate("() => document.body ? document.body.innerText : ''")
+            # Lỗi vùng/quốc gia bị chặn
+            if "country or region" in page_text.lower() or "isn't available" in page_text.lower():
+                log.error(f"❌ Account bị chặn vùng: {page_text[:150]}")
+                raise RuntimeError("REGION_BLOCKED: Service not available in this country/region")
+            # Lỗi sai mật khẩu hoặc giới hạn đăng nhập do sai nhiều lần
+            if "incorrect" in page_text.lower() or "パスワードが正しくありません" in page_text or "login restriction" in page_text.lower() or "wrong password" in page_text.lower():
+                log.error("❌ Sai email hoặc mật khẩu BNID, hoặc account bị giới hạn đăng nhập!")
+                raise RuntimeError("WRONG_PASSWORD: Email hoặc mật khẩu BNID không đúng / Bị giới hạn đăng nhập")
+            # Lỗi trang Error chung
+            if page_text.strip().startswith("Error") and "error" in page_text.lower():
+                log.error(f"❌ Trang lỗi Bandai: {page_text[:200]}")
+                raise RuntimeError(f"BNID_LOGIN_ERROR: {page_text[:150]}")
+        except RuntimeError:
+            raise
+        except Exception:
+            pass
+
+        # === KIỂM TRA AUTH CODE (OTP) ===
         if "authCode.html" in page.url or await page.query_selector("input[name='authenticationCode']"):
             log.info("⚠️ Bandai Namco yêu cầu xác thực 2 bước (OTP) khi đăng nhập thiết bị lạ!")
             await handle_email_otp(page, email, email_password, since_ts, mail_page, refresh_token, client_id, otp_email, otp_pass, provider)
 
-        # Xử lý các màn hình đồng ý điều khoản bổ sung nếu có khi login
-        log.info("Kiểm tra màn hình chấp nhận điều khoản bổ sung khi đăng nhập...")
-        for _ in range(3):
+        # Xử lý các màn hình đồng ý điều khoản bổ sung hoặc điền thông tin nếu có khi login
+        log.info("Kiểm tra màn hình chấp nhận điều khoản bổ sung / nhập thông tin khi đăng nhập...")
+        for _ in range(5):
             await page.wait_for_timeout(1000)
             try:
-                cbs = await page.query_selector_all("input[type='checkbox']")
-                for cb in cbs:
-                    await cb.evaluate("el => { if (!el.checked) el.click(); }")
+                current_url = page.url
+                
+                # Check nếu đã vào trang nhập Ngày sinh (input#id_year hiển thị)
+                dob_el = await page.query_selector("input#id_year")
+                if dob_el and await dob_el.is_visible():
+                    log.info("   ✅ Giao diện nhập Quốc gia / Ngày sinh chèn ngang đã hiển thị. Tiến hành điền...")
+                    
+                    if "-" in birthday:
+                        parts = birthday.split("-")
+                        birth_year, birth_month, birth_day = parts[0], parts[1], parts[2]
+                    else:
+                        birth_year, birth_month, birth_day = birthday[:4], birthday[4:6], birthday[6:]
+                    
+                    # Chọn Quốc gia = Japan
+                    try:
+                        selects = await page.query_selector_all("select")
+                        for sel in selects:
+                            val = await sel.get_attribute("value") or ""
+                            options = await sel.query_selector_all("option")
+                            for opt in options:
+                                opt_val = await opt.get_attribute("value") or ""
+                                if opt_val in ["JP", "japan", "Japan", "JPN", "392"]:
+                                    await sel.evaluate(f"el => {{ el.value = '{opt_val}'; el.dispatchEvent(new Event('change', {{bubbles: true}})); }}")
+                                    await page.wait_for_timeout(500)
+                                    break
+                    except Exception:
+                        pass
 
-                agree_btn = await page.query_selector("button#btn-agree-b, button#btn-accept-all")
-                if agree_btn:
-                    log.info("Phát hiện và click nút đồng ý điều khoản bổ sung...")
-                    await agree_btn.click()
-                    await page.wait_for_load_state("domcontentloaded", timeout=60000)
+                    # Điền Ngày sinh
+                    try:
+                        month_loc = page.locator("input#id_month")
+                        day_loc = page.locator("input#id_day")
+                        year_loc = page.locator("input#id_year")
+                        if await month_loc.count() > 0 and await day_loc.count() > 0 and await year_loc.count() > 0:
+                            await month_loc.evaluate(f"el => {{ el.value = '{str(int(birth_month))}'; el.dispatchEvent(new Event('input', {{bubbles: true}})); el.dispatchEvent(new Event('change', {{bubbles: true}})); }}")
+                            await page.wait_for_timeout(300)
+                            await day_loc.evaluate(f"el => {{ el.value = '{str(int(birth_day))}'; el.dispatchEvent(new Event('input', {{bubbles: true}})); el.dispatchEvent(new Event('change', {{bubbles: true}})); }}")
+                            await page.wait_for_timeout(300)
+                            await year_loc.evaluate(f"el => {{ el.value = '{birth_year}'; el.dispatchEvent(new Event('input', {{bubbles: true}})); el.dispatchEvent(new Event('change', {{bubbles: true}})); }}")
+                            await page.wait_for_timeout(1000)
+                    except Exception:
+                        pass
+
+                    # Tick checkbox
+                    cbs = await page.query_selector_all("input[type='checkbox']")
+                    for cb in cbs:
+                        await cb.evaluate("""el => { 
+                            if (!el.checked) {
+                                if (el.labels && el.labels.length > 0) {
+                                    el.labels[0].click();
+                                } else if (el.parentElement && el.parentElement.tagName === 'LABEL') {
+                                    el.parentElement.click();
+                                } else {
+                                    el.click();
+                                }
+                            }
+                        }""")
+                        
+                    agree_btn = await page.query_selector("button#btn-agree-b, button#btn-accept-all")
+                    if agree_btn:
+                        log.info("   Đã điền xong DOB, click nút Continue...")
+                        await agree_btn.click()
+                        await page.wait_for_load_state("domcontentloaded", timeout=60000)
+                        await page.wait_for_timeout(2000)
+                    break
+                    
+                # Chỉ là terms review bình thường
+                elif "disp=terms" in current_url or "login.html" in current_url:
+                    cbs = await page.query_selector_all("input[type='checkbox']")
+                    for cb in cbs:
+                        await cb.evaluate("""el => { 
+                            if (!el.checked) {
+                                if (el.labels && el.labels.length > 0) {
+                                    el.labels[0].click();
+                                } else if (el.parentElement && el.parentElement.tagName === 'LABEL') {
+                                    el.parentElement.click();
+                                } else {
+                                    el.click();
+                                }
+                            }
+                        }""")
+
+                    agree_btn = await page.query_selector("button#btn-agree-b, button#btn-accept-all")
+                    if agree_btn:
+                        log.info("Phát hiện và click nút đồng ý điều khoản bổ sung...")
+                        await agree_btn.click()
+                        await page.wait_for_load_state("domcontentloaded", timeout=60000)
+                        await page.wait_for_timeout(2000)
+                        break
             except Exception:
-                break
+                pass
 
         log.info(f"→ Đăng nhập hoàn tất. URL hiện tại: {page.url}")
         return "ALREADY_LOGGED_IN"
@@ -219,6 +320,11 @@ async def run_step3(page: Page, email: str, password: str, birthday: str, has_bn
             # Bỏ qua nếu trang đang chuyển hướng
             pass
 
+        # 0. Check lỗi region/country bị chặn (có thể xuất hiện ở cả đăng ký lẫn đăng nhập)
+        if "country or region" in page_text.lower() or "isn't available" in page_text.lower():
+            log.error(f"❌ Account bị chặn vùng: {page_text[:150]}")
+            raise RuntimeError("REGION_BLOCKED: Service not available in this country/region")
+
         # 1. Check nếu có text báo lỗi email đã được sử dụng
         email_in_use_markers = [
             "already in use",
@@ -258,12 +364,63 @@ async def run_step3(page: Page, email: str, password: str, birthday: str, has_bn
             log.warning(f"⚠️ Phát hiện đã chuyển hướng sang passkeyInfo.html!")
             is_already_in_use = True
             break
-
+            
         # 3. Check nếu đã vào trang nhập Ngày sinh (input#id_year hiển thị)
         dob_el = await page.query_selector("input#id_year")
         if dob_el and await dob_el.is_visible():
             log.info("   ✅ Giao diện nhập Quốc gia / Ngày sinh đã hiển thị.")
             break
+            
+        # 4. Check nếu bị chèn ngang trang Terms Review (disp=terms hoặc login.html)
+        if "disp=terms" in current_url or "login.html" in current_url:
+            log.info("   👉 Phát hiện trang Terms Review chèn ngang. Tick checkbox + click Continue...")
+            try:
+                checkbox = await page.wait_for_selector("input[type='checkbox']", timeout=5000)
+                if checkbox:
+                    # Chạy JS để mô phỏng click chuẩn xác vào thẻ label bọc ngoài (tránh React chặn event)
+                    await page.evaluate("""() => {
+                        const cb = document.querySelector("input[type='checkbox']");
+                        if (cb) {
+                            if (cb.labels && cb.labels.length > 0) {
+                                cb.labels[0].click();
+                            } else if (cb.parentElement && cb.parentElement.tagName === 'LABEL') {
+                                cb.parentElement.click();
+                            } else {
+                                cb.click();
+                            }
+                        }
+                    }""")
+                    log.info("   Đã tick checkbox 'I agree' thông qua Label click.")
+                    await page.wait_for_timeout(800)
+            except Exception as e:
+                log.warning(f"   Không thể tick checkbox: {e}")
+
+            try:
+                await page.evaluate("if (document.body) { window.scrollTo(0, document.body.scrollHeight); }")
+                await page.wait_for_timeout(500)
+            except Exception:
+                pass
+
+            try:
+                next_btns = await page.query_selector_all(
+                    "button:has-text('同意する'), button:has-text('次へ'), button:has-text('OK'), button:has-text('Continue'), button:has-text('Agree'), button:has-text('Accept'), button.c-button--primary:not(:has-text('Disagree'))"
+                )
+                
+                next_btn = None
+                for btn in next_btns:
+                    if await btn.is_visible() and not await btn.is_disabled():
+                        next_btn = btn
+                        break
+                        
+                if next_btn:
+                    log.info("   Tìm thấy nút đi tiếp. Đang click để qua màn hình này...")
+                    await next_btn.click(timeout=5000)
+                    await page.wait_for_timeout(3000)
+                else:
+                    log.warning("   Không tìm thấy nút Continue nào hợp lệ hoặc click thất bại.")
+            except Exception as e:
+                log.warning(f"   Lỗi khi click nút Continue: {e}")
+            continue
 
     if is_already_in_use:
         raise RuntimeError("EMAIL_ALREADY_IN_USE")
@@ -280,7 +437,7 @@ async def run_step3(page: Page, email: str, password: str, birthday: str, has_bn
         try:
             from src import config as _cfg
             screenshot_path = str(_cfg.DATA_DIR / f"timeout_step3_{email}.png")
-            await asyncio.wait_for(page.screenshot(path=screenshot_path, full_page=True), timeout=5.0)
+            await page.screenshot(path=screenshot_path, full_page=True, timeout=5000)
             log.info(f"Đã lưu ảnh màn hình lỗi tại: {screenshot_path}")
         except Exception as img_e:
             log.debug(f"Không thể chụp ảnh màn hình: {img_e}")
@@ -341,7 +498,17 @@ async def run_step3(page: Page, email: str, password: str, birthday: str, has_bn
     await human_delay(page, 600, 1200)
     extra_cbs = await page.query_selector_all("input[type='checkbox']")
     for cb in extra_cbs:
-        await cb.evaluate("el => { if (!el.checked) el.click(); }")
+        await cb.evaluate("""el => { 
+            if (!el.checked) {
+                if (el.labels && el.labels.length > 0) {
+                    el.labels[0].click();
+                } else if (el.parentElement && el.parentElement.tagName === 'LABEL') {
+                    el.parentElement.click();
+                } else {
+                    el.click();
+                }
+            }
+        }""")
         await page.wait_for_timeout(random.randint(200, 500))
     log.info(f"   Đã tick {len(extra_cbs)} checkbox bổ sung.")
 

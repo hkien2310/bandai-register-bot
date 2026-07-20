@@ -61,16 +61,43 @@ async def run_step4(page: Page, email: str, password: str, nickname: str, birthd
             log.info("   ✅ Đã về trang đăng ký thành viên Namco Parks!")
             break
 
-        # Nếu chuyển hướng thẳng sang trang sms_authentication (xác thực sđt) hoặc trang mypage/member
-        # mà không qua form đăng ký (member_regist_new), nghĩa là tài khoản đã liên kết Namco Parks từ trước
-        if "sms_authentication.html" in current_url or "mypage" in current_url.lower():
+        # Nếu đã ở mypage hoặc item_list nghĩa là tài khoản đã liên kết Namco Parks hoàn tất từ trước
+        if "mypage" in current_url.lower() or "item_list.html" in current_url:
             log.warning("   ⚠️ Phát hiện URL đã liên kết Namco Parks từ trước! Bỏ qua đăng ký.")
             return "ALREADY_REGISTERED", "ALREADY_REGISTERED"
+
+        # Nếu bị kẹt ở sms_authentication.html từ lần chạy trước, phải click đổi số để quay lại form điền Profile
+        if "sms_authentication.html" in current_url:
+            log.warning("   ⚠️ Kẹt ở màn hình xác thực SMS cũ. Bấm đổi số điện thoại để làm lại...")
+            try:
+                change_phone_btn = await page.query_selector("a:has-text('携帯電話番号の変更はこちら')")
+                if change_phone_btn:
+                    await change_phone_btn.click()
+                    await page.wait_for_load_state("domcontentloaded", timeout=20000)
+                    await page.wait_for_timeout(2000)
+                    continue
+            except Exception as e:
+                log.warning(f"   Lỗi khi click đổi số điện thoại: {e}")
 
         # Trang trung gian (signupEnd, authCode, terms, login, privacy...)
         # Xử lý trên bất kỳ trang nào không phải là form chính của Parks
         if not is_on_parks_form(current_url):
             log.info("   Phát hiện trang trung gian. Xử lý...")
+
+            # 0. Check lỗi fatal (region blocked, v.v) trên trang trung gian
+            try:
+                page_text = await page.evaluate("() => document.body ? document.body.innerText : ''")
+                if "country or region" in page_text.lower() or "isn't available" in page_text.lower():
+                    log.error(f"❌ Account bị chặn vùng: {page_text[:150]}")
+                    raise RuntimeError("REGION_BLOCKED: Service not available in this country/region")
+                if page_text.strip().startswith("Error") and "error" in page_text.lower():
+                    log.error(f"❌ Trang lỗi Bandai: {page_text[:200]}")
+                    raise RuntimeError(f"BNID_LOGIN_ERROR: {page_text[:150]}")
+            except RuntimeError:
+                raise
+            except Exception:
+                pass
+
 
             # 1. Xử lý cookie banner trước
             await handle_cookie_banner()
@@ -115,7 +142,7 @@ async def run_step4(page: Page, email: str, password: str, nickname: str, birthd
                     continue
                 else:
                     html_content = await page.content()
-                    with open(f"data/passkey_dump_{email}.html", "w", encoding="utf-8") as f_html:
+                    with open(config.DATA_DIR / f"passkey_dump_{email}.html", "w", encoding="utf-8") as f_html:
                         f_html.write(html_content)
                     log.error(f"   [Passkey] Dumped HTML to data/passkey_dump_{email}.html")
                     raise RuntimeError("Bắt buộc phải click Later trên màn hình Passkey nhưng không tìm thấy nút!")
@@ -177,43 +204,50 @@ async def run_step4(page: Page, email: str, password: str, nickname: str, birthd
                 log.info("   Phát hiện trang Terms Review. Tick checkbox + click Agree...")
                 # Tick checkbox 'I agree to the above statements.'
                 try:
-                    checkbox = await page.query_selector("input[type='checkbox']")
+                    checkbox = await page.wait_for_selector("input[type='checkbox']", timeout=5000)
                     if checkbox:
-                        await checkbox.evaluate("el => { el.checked = true; el.dispatchEvent(new Event('change', {bubbles:true})); el.dispatchEvent(new Event('click', {bubbles:true})); }")
-                        log.info("   Đã tick checkbox 'I agree'.")
+                        # Chạy JS để mô phỏng click chuẩn xác vào thẻ label bọc ngoài (tránh React chặn event)
+                        await page.evaluate("""() => {
+                            const cb = document.querySelector("input[type='checkbox']");
+                            if (cb) {
+                                if (cb.labels && cb.labels.length > 0) {
+                                    cb.labels[0].click();
+                                } else if (cb.parentElement && cb.parentElement.tagName === 'LABEL') {
+                                    cb.parentElement.click();
+                                } else {
+                                    cb.click();
+                                }
+                            }
+                        }""")
+                        log.info("   Đã tick checkbox 'I agree' thông qua Label click.")
                         await page.wait_for_timeout(800)
                 except Exception as e:
                     log.warning(f"   Không thể tick checkbox: {e}")
 
                 # Cuộn xuống để thấy nút Agree
                 try:
-                    await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                    await page.evaluate("if (document.body) { window.scrollTo(0, document.body.scrollHeight); }")
                     await page.wait_for_timeout(500)
                 except Exception as e:
-                    log.warning(f"   Lỗi khi cuộn trang: {e}")
+                    pass
 
                 # Click nút Agree (không phải Disagree)
                 try:
-                    agreed = False
-                    for agree_sel in [
-                        "button:text-is('Agree')",
-                        "button:text-is('同意する')",
-                        "button:text-is('同意')",
-                        "button.c-button--primary:not(:has-text('Disagree')):not(:has-text('不同意'))",
-                    ]:
-                        try:
-                            btn = await page.query_selector(agree_sel)
-                            if btn and await btn.is_visible():
-                                txt = (await btn.inner_text()).strip()
-                                log.info(f"   Click Agree: '{txt}'")
-                                await btn.click()
-                                agreed = True
-                                await page.wait_for_timeout(3000)
-                                break
-                        except Exception:
-                            continue
-
-                    if not agreed:
+                    next_btns = await page.query_selector_all(
+                        "button:has-text('同意する'), button:has-text('次へ'), button:has-text('OK'), button:has-text('Continue'), button:has-text('Agree'), button:has-text('Accept'), button.c-button--primary:not(:has-text('Disagree'))"
+                    )
+                    
+                    next_btn = None
+                    for btn in next_btns:
+                        if await btn.is_visible() and not await btn.is_disabled():
+                            next_btn = btn
+                            break
+                            
+                    if next_btn:
+                        log.info("   Tìm thấy nút đi tiếp. Đang click để qua màn hình này...")
+                        await next_btn.click(timeout=5000)
+                        await page.wait_for_timeout(3000)
+                    else:
                         # Dump tất cả button dể debug
                         btns = await page.query_selector_all("button")
                         log.warning(f"   Dump {len(btns)} buttons:")

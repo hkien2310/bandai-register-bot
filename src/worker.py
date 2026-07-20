@@ -26,7 +26,9 @@ class RegistrationWorker:
         config.SESSION_STATS["PROCESSING"] = max(0, config.SESSION_STATS["PROCESSING"] - 1)
         if status == "SUCCESS":
             config.SESSION_STATS["SUCCESS"] += 1
-        elif status in ("FAILED", "ERROR", "ABORTED"):
+        elif status == "FAIL_NO_RETRY":
+            config.SESSION_STATS["FAIL_NO_RETRY"] = config.SESSION_STATS.get("FAIL_NO_RETRY", 0) + 1
+        elif status in ("FAILED", "ERROR"):
             config.SESSION_STATS["FAILED"] += 1
         elif status == "PENDING":
             config.SESSION_STATS["PENDING"] += 1
@@ -131,17 +133,29 @@ class RegistrationWorker:
                 self._finish_task(result_data["status"])
                 continue
 
-            # Kiểm tra trên Sheet Accounts xem email này đã có BNID chưa
-            existing_status = self.sheets_manager.get_account_status(email)
-            has_bnid_local = False  # existing_status in ("HAS_BNID",) - Tạm thời comment luồng login để luôn chạy đăng ký
+            # Kiểm tra HAS_BNID: ưu tiên status từ Mails sheet, fallback check Accounts sheet
+            mail_status = email_data.get("mail_status", "").strip().upper()
+            account_info = self.sheets_manager.get_account_info(email)
+            existing_status = account_info.get("status", "")
+            has_bnid_local = mail_status == "HAS_BNID" or existing_status == "HAS_BNID"
             if has_bnid_local:
-                log.info(f"📋 Sheet Accounts cho thấy {email} đã có BNID (status={existing_status}). Sẽ chạy luồng LOGIN.")
+                # Lấy mật khẩu BNID từ Accounts, nếu không có thì giữ password mặc định
+                saved_password = account_info.get("bandai_password", "").strip()
+                if saved_password:
+                    password = saved_password
+                    result_data["bandai_password"] = password
+                    result_data["namco_password"] = password
+                    log.info(f"📋 HAS_BNID: Dùng password '{password}' từ Accounts cho {email}. Chạy luồng LOGIN.")
+                else:
+                    log.info(f"📋 HAS_BNID: Không có password trong Accounts, dùng password mặc định '{password}'. Chạy luồng LOGIN.")
             
             # Chỉ thử 1 lần cho mỗi lượt chạy. Lỗi thì chuyển sang account tiếp theo luôn.
             max_retries = 1
             success = False
             for attempt in range(1, max_retries + 1):
                 if config.STOP_FLAG:
+                    result_data["status"] = "PENDING"
+                    result_data["error_details"] = "Dừng đột ngột"
                     log.warning("🛑 Nhận lệnh STOP, hủy bỏ proxy check.")
                     break
 
@@ -156,6 +170,7 @@ class RegistrationWorker:
                 
                 proxy, proxy_idx = None, -1
                 proxy_str = "Direct"
+                proxy_overloaded = False
                 if config.USE_PROXY:
                     proxy_attempts = 0
                     max_proxy_attempts = 3
@@ -205,10 +220,12 @@ class RegistrationWorker:
                             if "SITE_OVERLOADED" in str(e):
                                 log.error(f"❌ Server Namco đang quá tải (アクセス集中). Tạm thời đánh dấu account này PENDING.")
                                 self.sheets_manager.update_email_status(raw_email, "PENDING")
+                                proxy_overloaded = True
                                 break
                                 
                             log.warning(f"❌ Proxy chết ({type(e).__name__}), đổi proxy khác...")
-                            self.proxy_pool.mark_failed(proxy_idx)
+                            if proxy_idx >= 0:
+                                self.proxy_pool.mark_failed(proxy_idx)
                             proxy = None  # Đặt lại None để báo hiệu chưa có proxy sống
                 else:
                     log.info("⚠️ Chạy KHÔNG DÙNG PROXY theo cấu hình (USE_PROXY=false)")
@@ -222,16 +239,14 @@ class RegistrationWorker:
                 self.sheets_manager.update_email_status(raw_email, "PROCESSING")
                 
                 try:
+                    if proxy_overloaded:
+                        raise Exception("SITE_OVERLOADED")
+                    
                     if config.USE_PROXY and not proxy:
                         if len(self.proxy_pool.proxies) == 0:
                             result_data["status"] = "FAILED"
                             result_data["error_details"] = "Kho proxy cạn kiệt"
                             raise Exception("KHO_PROXY_CAN_KIET")
-                        elif self.email_queue.empty():
-                            # Nếu queue bị clear (do site quá tải hoặc cạn proxy), thoát nhẹ nhàng
-                            result_data["status"] = "PENDING"
-                            result_data["error_details"] = "Dừng đột ngột"
-                            break
                         else:
                             result_data["status"] = "FAILED"
                             result_data["error_details"] = "Không tìm được proxy sống sau 3 lần thử."
@@ -254,7 +269,7 @@ class RegistrationWorker:
                                     email_data.get("otp_pass", ""),
                                     email_data.get("provider", "")
                                 ),
-                                timeout=300
+                                timeout=600
                             )
                         )
                         
@@ -281,11 +296,13 @@ class RegistrationWorker:
                         log.warning(f"🛑 Tài khoản {email} bị huỷ đột ngột (User bấm Stop).")
                         result_data["status"] = "PENDING"
                         result_data["error_details"] = "Dừng đột ngột"
-                        self.proxy_pool.release_proxy(proxy_idx)
+                        if proxy_idx >= 0:
+                            self.proxy_pool.release_proxy(proxy_idx)
                         break
                     except BaseException as e:
                         raise e
-                    self.proxy_pool.mark_used(proxy_idx)
+                    if proxy_idx >= 0:
+                        self.proxy_pool.mark_used(proxy_idx)
                     break
                 except Exception as e:
                     error_msg = str(e)
@@ -303,7 +320,8 @@ class RegistrationWorker:
                         log.warning(f"❌ Server Namco đang quá tải hoặc lỗi hệ thống. Tự động bỏ qua account này và chuyển trạng thái thành FAILED.")
                         result_data["status"] = "FAILED"
                         result_data["error_details"] = "Server Namco quá tải hoặc lỗi hệ thống"
-                        self.proxy_pool.release_proxy(proxy_idx)
+                        if proxy_idx >= 0:
+                            self.proxy_pool.release_proxy(proxy_idx)
                         break
 
                     # ─── Lỗi Band IP ───
@@ -316,7 +334,8 @@ class RegistrationWorker:
                             break
                         else:
                             log.warning("❌ Proxy bị Ban IP. Đánh dấu chết và chuyển proxy khác...")
-                            self.proxy_pool.mark_failed(proxy_idx)
+                            if proxy_idx >= 0:
+                                self.proxy_pool.mark_failed(proxy_idx)
                             # Đẩy xuống dưới để tiếp tục vòng lặp retry với proxy mới
                             # Gán error để bên dưới mark is_proxy_error = True
                             error_msg += " net::ERR_PROXY_BANNED"
@@ -325,7 +344,8 @@ class RegistrationWorker:
                         log.warning("🛑 Nhận lệnh STOP, huỷ bỏ xử lý lỗi và thoát luồng.")
                         result_data["status"] = "PENDING"
                         result_data["error_details"] = "Dừng đột ngột"
-                        self.proxy_pool.release_proxy(proxy_idx)
+                        if proxy_idx >= 0:
+                            self.proxy_pool.release_proxy(proxy_idx)
                         break
                         
                     # ─── Phân loại lỗi: KHÔNG RETRY vs CÓ THỂ RETRY ───
@@ -333,18 +353,23 @@ class RegistrationWorker:
                         "EMAIL_ALREADY_IN_USE",          # Email đã đăng ký rồi
                         "Email đã được sử dụng",         # Thông báo tiếng Việt
                         "KeyboardInterrupt",             # User tự tắt
+                        "REGION_BLOCKED",                # Account bị chặn vùng/quốc gia
+                        "WRONG_PASSWORD",                # Sai mật khẩu BNID
+                        "BNID_LOGIN_ERROR",              # Lỗi login BNID khác
                     ]
                     is_permanent = any(kw in error_msg for kw in NO_RETRY_KEYWORDS)
                     
                     if is_permanent:
                         log.error(f"🚫 Lỗi KHÔNG THỂ RETRY: {error_msg[:200]}")
                         if "EMAIL_ALREADY_IN_USE" in error_msg or "Email đã được sử dụng" in error_msg:
-                            result_data["status"] = "ABORTED"
-                            result_data["error_details"] = "Email đã được sử dụng"
+                            result_data["status"] = "HAS_BNID"
+                            result_data["error_details"] = "Email đã được sử dụng, chuyển HAS_BNID để thử login ở lượt sau."
+                            log.warning("🔄 " + result_data["error_details"])
                         else:
-                            result_data["status"] = "ABORTED"
+                            result_data["status"] = "FAIL_NO_RETRY"
                             result_data["error_details"] = error_msg[:200]
-                        self.proxy_pool.mark_used(proxy_idx)
+                        if proxy_idx >= 0:
+                            self.proxy_pool.mark_used(proxy_idx)
                         break  # Thoát vòng retry ngay
                     
                     # ─── Lỗi CÓ THỂ RETRY ───
@@ -355,13 +380,15 @@ class RegistrationWorker:
                             log.warning(f"   -> Lỗi mạng/trình duyệt, đánh dấu proxy chết...")
                         else:
                             log.warning(f"   -> Lỗi mạng/trình duyệt (Kết nối trực tiếp/Không dùng proxy)...")
-                        self.proxy_pool.mark_failed(proxy_idx)
+                        if proxy_idx >= 0:
+                            self.proxy_pool.mark_failed(proxy_idx)
                         is_proxy_error = True
                     
                     if result_data["bnid_user_code"] != "":
                         log.info("   -> Đã tạo BNID thành công nhưng lỗi ở bước sau. Đánh dấu HAS_BNID và bỏ qua không thử lại.")
                         result_data["status"] = "HAS_BNID"
-                        self.proxy_pool.mark_used(proxy_idx)
+                        if proxy_idx >= 0:
+                            self.proxy_pool.mark_used(proxy_idx)
                         break
 
                     result_data["status"] = "FAILED"
@@ -370,11 +397,13 @@ class RegistrationWorker:
                     if attempt == max_retries:
                         log.error(f"❌ Đã thử {max_retries} lần đều thất bại cho {email}")
                         if not is_proxy_error:
-                            self.proxy_pool.mark_used(proxy_idx)
+                            if proxy_idx >= 0:
+                                self.proxy_pool.mark_used(proxy_idx)
                         break
                     else:
                         # MỞ KHÓA proxy trước khi retry để worker khác có thể dùng
-                        self.proxy_pool.release_proxy(proxy_idx)
+                        if proxy_idx >= 0:
+                            self.proxy_pool.release_proxy(proxy_idx)
                         log.info("⏳ Lỗi có thể retry. Thử lại sau 2 giây...")
                         import time
                         # Chờ ngắt quãng để phản hồi STOP ngay lập tức
@@ -383,10 +412,11 @@ class RegistrationWorker:
                             time.sleep(0.5)
 
             # MỞ KHÓA proxy sau khi xử lý xong account (dù thành công hay thất bại)
-            self.proxy_pool.release_proxy(proxy_idx)
+            if proxy_idx >= 0:
+                self.proxy_pool.release_proxy(proxy_idx)
 
             # Kết quả cuối cùng — luôn ghi vào Accounts (upsert)
-            self.sheets_manager.update_email_status(raw_email, result_data["status"])
+            self.sheets_manager.update_email_status(raw_email, result_data["status"], result_data.get("error_details", ""))
             self.sheets_manager.append_account(result_data)
             self._finish_task(result_data["status"])
             log.info(f"Kết thúc xử lý tài khoản {email}\n" + "-"*50)
@@ -453,6 +483,12 @@ class RegistrationWorker:
                 err = str(e)
                 if "IP_BANNED" in err:
                     raise e
+                if "REGION_BLOCKED" in err:
+                    raise Exception(f"REGION_BLOCKED: {err}")
+                if "WRONG_PASSWORD" in err:
+                    raise Exception(f"WRONG_PASSWORD: {err}")
+                if "BNID_LOGIN_ERROR" in err:
+                    raise Exception(f"BNID_LOGIN_ERROR: {err}")
                 if "Không nhận được OTP email" in err:
                     raise Exception("Lỗi Bước 3 (OTP Email): Không nhận được OTP từ Bandai Namco sau 120s.")
                 elif "EMAIL_ALREADY_IN_USE" in err:
@@ -504,14 +540,17 @@ class RegistrationWorker:
                         await page.wait_for_load_state("domcontentloaded")
                         await asyncio.sleep(2)
                         html = await page.evaluate("() => document.body ? document.body.innerHTML : ''")
-                        # BNID thường có dạng B + 12 số (vd: B999888777666) hoặc 12 số
-                        m = _re.search(r'\b(B\d{12}|\d{12})\b', html)
+                        text = await page.evaluate("() => document.body ? document.body.innerText : ''")
+                        # BNID thường có dạng B + 12 số (vd: B999888777666) hoặc 12 số nằm gần chữ BNID hoặc ユーザーコード
+                        m = _re.search(r'(?:BNID|ユーザーコード|ID)[\s:：]*([B]\d{12}|\d{12})\b', text, _re.IGNORECASE)
+                        if not m:
+                            m = _re.search(r'\b(B\d{12})\b', text)
                         if m:
                             bnid = m.group(1).strip()
-                            log.info(f"🔍 [{url}] Tìm thấy chuỗi nghi ngờ BNID trong HTML: {bnid}")
+                            log.info(f"🔍 [{url}] Tìm thấy chuỗi nghi ngờ BNID: {bnid}")
                             return bnid
                         else:
-                            text_preview = await page.evaluate("() => document.body ? document.body.innerText.substring(0, 300) : ''")
+                            text_preview = text[:300]
                             log.info(f"🔍 [{url}] Không tìm thấy BNID. Text preview: {text_preview}")
                     except Exception as ex:
                         log.warning(f"⚠️ Lỗi truy cập {url}: {ex}")
@@ -549,7 +588,7 @@ class RegistrationWorker:
 
                         if not config.STOP_FLAG:
                             screenshot_path = str(config.DATA_DIR / f"error_fatal_{email.replace('+', '_')}.png")
-                            await asyncio.wait_for(page.screenshot(path=screenshot_path), timeout=5.0)
+                            await page.screenshot(path=screenshot_path, timeout=5000)
                             log.info(f"Đã chụp screenshot lỗi fatal: {screenshot_path}")
                 except Exception as se:
                     log.debug(f"Không thể chụp screenshot lỗi fatal: {se}")
