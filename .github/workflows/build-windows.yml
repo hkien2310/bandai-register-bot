@@ -57,6 +57,13 @@ jobs:
           --name "NamcoBot" `
           --add-data "src;src" `
           --add-data "config.json;." `
+          --hidden-import=_socket `
+          --hidden-import=socket `
+          --hidden-import=multiprocessing `
+          --hidden-import=multiprocessing.reduction `
+          --hidden-import=multiprocessing.context `
+          --hidden-import=multiprocessing.popen_spawn_win32 `
+          --hidden-import=multiprocessing.synchronize `
           --hidden-import=playwright `
           --hidden-import=playwright.async_api `
           --hidden-import=playwright.sync_api `
@@ -80,6 +87,7 @@ jobs:
           --collect-all playwright `
           --collect-all openpyxl `
           gui.py
+
 
     - name: Create data directory
       shell: bash
