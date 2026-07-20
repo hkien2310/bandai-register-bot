@@ -3,7 +3,7 @@ name: Build Windows EXE
 on:
   push:
     branches: [ "main" ]
-  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+  workflow_dispatch:
 
 jobs:
   build:
@@ -13,9 +13,10 @@ jobs:
     - uses: actions/checkout@v4
 
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.11'
+        cache: 'pip'
 
     - name: Install dependencies
       run: |
@@ -24,7 +25,8 @@ jobs:
         pip install pyinstaller
 
     - name: Install Playwright browsers
-      run: playwright install chromium
+      run: |
+        playwright install chromium --with-deps
 
     - name: Generate embedded secrets
       shell: bash
@@ -32,23 +34,24 @@ jobs:
         GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
         GSPREAD_CREDENTIALS: ${{ secrets.GSPREAD_CREDENTIALS }}
       run: |
-        cat << 'EOF' > gen_secrets.py
+        python - <<'PYEOF'
         import os, json
         sheet = os.environ.get('GOOGLE_SHEET_ID', '')
         cred = os.environ.get('GSPREAD_CREDENTIALS', '{}')
         try:
             d = json.loads(cred)
-        except:
+        except Exception:
             d = {}
         with open('src/embedded_credentials.py', 'w', encoding='utf-8') as f:
             f.write("SECRETS = {\n")
             f.write(f'    "GOOGLE_SHEET_ID": {repr(sheet)},\n')
             f.write(f'    "CREDENTIALS_DICT": {repr(d)}\n')
             f.write("}\n")
-        EOF
-        python gen_secrets.py
+        print("embedded_credentials.py generated OK")
+        PYEOF
 
     - name: Prepare default config.json
+      shell: bash
       run: |
         echo "{}" > config.json
 
@@ -60,6 +63,7 @@ jobs:
           --add-data "config.json;." `
           --hidden-import=playwright `
           --hidden-import=playwright.async_api `
+          --hidden-import=playwright.sync_api `
           --hidden-import=openpyxl `
           --hidden-import=openpyxl.cell._writer `
           --hidden-import=openpyxl.styles `
@@ -81,9 +85,40 @@ jobs:
           --collect-all openpyxl `
           gui.py
 
+    - name: Bundle Playwright Chromium into dist
+      shell: pwsh
+      run: |
+        # Tìm thư mục Playwright cache trên Windows
+        $playwrightDir = "$env:USERPROFILE\AppData\Local\ms-playwright"
+        if (Test-Path $playwrightDir) {
+          Write-Host "Copying Playwright browsers from $playwrightDir ..."
+          $dest = "dist\NamcoBot\playwright-browsers"
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          # Chỉ copy chromium để tránh artifact quá nặng
+          $chromiumDirs = Get-ChildItem -Path $playwrightDir -Directory | Where-Object { $_.Name -like "chromium*" }
+          foreach ($dir in $chromiumDirs) {
+            Write-Host "  Copying $($dir.FullName) ..."
+            Copy-Item -Path $dir.FullName -Destination $dest -Recurse -Force
+          }
+          Write-Host "Done bundling Playwright browsers."
+        } else {
+          Write-Host "WARNING: Playwright dir not found at $playwrightDir"
+        }
+
+    - name: Set PLAYWRIGHT_BROWSERS_PATH in dist
+      shell: bash
+      run: |
+        # Tạo file .env để NamcoBot tự biết chỗ tìm browser
+        echo "PLAYWRIGHT_BROWSERS_PATH=playwright-browsers" >> dist/NamcoBot/.env
+
+    - name: Create data directory
+      shell: bash
+      run: |
+        mkdir -p dist/NamcoBot/data
+
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
         name: NamcoBot-Windows-Release
         path: dist/NamcoBot/
-        retention-days: 7
+        retention-days: 14
