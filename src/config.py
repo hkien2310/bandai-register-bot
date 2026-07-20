@@ -81,6 +81,9 @@ SMS_SERVER          = str(_get("sms_server", "2"))
 USE_PROXY               = _get("use_proxy", True)
 MAX_ACCOUNTS_PER_PROXY  = int(_get("max_accounts_per_proxy", 10))
 
+# Pre-fetched numbers
+USE_PRE_FETCHED_NUMBERS = _get("use_pre_fetched_numbers", False)
+
 # Active Sheet (Outlooks, Gmails, Iclouds)
 ACTIVE_SHEET            = _get("active_sheet", "Outlooks")
 

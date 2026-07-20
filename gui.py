@@ -1,7 +1,7 @@
 import os
 os.environ["CONFIG_FILE"] = "config.json"
 import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox, filedialog
+from tkinter import ttk, scrolledtext, messagebox, filedialog, simpledialog
 import json
 import threading
 import sys
@@ -74,6 +74,9 @@ class NamcoBotGUI:
         self.proxy_var = tk.BooleanVar()
         self.proxy_var.set(bool(cfg.get("use_proxy", True)))
 
+        self.use_pre_fetched_numbers_var = tk.BooleanVar()
+        self.use_pre_fetched_numbers_var.set(bool(cfg.get("use_pre_fetched_numbers", False)))
+
         self.browser_path_var = tk.StringVar()
         self.browser_path_var.set(cfg.get("browser_path", ""))
 
@@ -126,6 +129,9 @@ class NamcoBotGUI:
         chk_frame.grid(row=5, column=0, columnspan=3, sticky=tk.W, pady=10)
         ttk.Checkbutton(chk_frame, text="Chạy ngầm (Headless)", variable=self.headless_var).pack(side=tk.LEFT, padx=10)
         ttk.Checkbutton(chk_frame, text="Dùng Proxy", variable=self.proxy_var).pack(side=tk.LEFT, padx=10)
+        ttk.Checkbutton(chk_frame, text="Dùng số lấy trước", variable=self.use_pre_fetched_numbers_var).pack(side=tk.LEFT, padx=10)
+        ttk.Button(chk_frame, text="⬇️ Tải trước số", command=self.prefetch_numbers_gui).pack(side=tk.LEFT, padx=10)
+        ttk.Button(chk_frame, text="🛑 Dừng tải số", command=self.stop_prefetch_gui).pack(side=tk.LEFT, padx=10)
 
         # XLSX file selector
         xlsx_frame = ttk.Frame(frame)
@@ -267,6 +273,7 @@ class NamcoBotGUI:
             cfg["worker_count"] = 3
         cfg["headless"] = self.headless_var.get()
         cfg["use_proxy"] = self.proxy_var.get()
+        cfg["use_pre_fetched_numbers"] = self.use_pre_fetched_numbers_var.get()
         cfg["browser_path"] = self.browser_path_var.get()
         cfg["default_dob"] = self.default_dob_var.get()
         cfg["default_prefecture"] = self.default_pref_var.get()
@@ -372,6 +379,92 @@ class NamcoBotGUI:
                 self.log_listbox.insert(tk.END, "✅ Trạng thái: Đã hoàn tất công việc!")
                 self.log_listbox.see(tk.END)
             self.root.after(0, update_done)
+
+    def prefetch_numbers_gui(self):
+        count = simpledialog.askinteger("Tải trước số", "Nhập số lượng số điện thoại muốn tải trước:", minvalue=1, maxvalue=500, initialvalue=10)
+        if count:
+            self.stop_prefetch_flag = False
+            self.log_listbox.insert(tk.END, f"🚀 Bắt đầu tải {count} số...")
+            self.log_listbox.see(tk.END)
+            threading.Thread(target=self.prefetch_numbers_thread, args=(count,), daemon=True).start()
+
+    def stop_prefetch_gui(self):
+        self.stop_prefetch_flag = True
+        self.log_listbox.insert(tk.END, "🛑 Đang yêu cầu dừng tải trước số...")
+        self.log_listbox.see(tk.END)
+
+    def prefetch_numbers_thread(self, count):
+        import src.config as config
+        from src.core.sms_service import order_phone, _pre_fetched_lock
+        
+        pre_fetched_path = config.DATA_DIR / "pre_fetched_numbers.json"
+        
+        success_count = 0
+        attempts = 0
+        
+        while success_count < count:
+            if getattr(self, 'stop_prefetch_flag', False):
+                self.log_listbox.insert(tk.END, "🛑 Đã dừng tải trước số.")
+                self.log_listbox.see(tk.END)
+                break
+                
+            try:
+                self.log_listbox.insert(tk.END, f"Đang tải số thứ {success_count+1}/{count}...")
+                self.log_listbox.see(tk.END)
+                
+                num_info = order_phone(force_api=True)
+                
+                with _pre_fetched_lock:
+                    # Đọc lại list mới nhất từ file để tránh ghi đè mất dữ liệu do thread khác đang dùng
+                    existing_numbers = []
+                    if pre_fetched_path.exists():
+                        try:
+                            with open(pre_fetched_path, "r", encoding="utf-8") as f:
+                                existing_numbers = json.load(f)
+                        except Exception:
+                            pass
+                    
+                    num_info["id"] = len(existing_numbers) + 1
+                    num_info["is_used"] = False
+                    existing_numbers.append(num_info)
+                    
+                    with open(pre_fetched_path, "w", encoding="utf-8") as f:
+                        json.dump(existing_numbers, f, indent=4)
+                        
+                success_count += 1
+                attempts = 0 # reset sau khi thành công
+                    
+                self.log_listbox.insert(tk.END, f"✅ Đã tải số: {num_info.get('phone')} (Tổng kho: {len(existing_numbers)})")
+                self.log_listbox.see(tk.END)
+                
+                # Không chờ cứng 6.5s nữa để tối ưu tốc độ. Nếu dính Rate Limit (403) thì code ở phần except sẽ tự động chờ 30s.
+                pass
+                
+            except Exception as e:
+                err_msg = str(e)
+                attempts += 1
+                
+                import time
+                if "hết số" in err_msg.lower():
+                    self.log_listbox.insert(tk.END, f"⚠️ Kho hết số, tự động thử lại sau 15s... (lần thử {attempts})")
+                    self.log_listbox.see(tk.END)
+                    time.sleep(15)
+                elif "403" in err_msg:
+                    self.log_listbox.insert(tk.END, f"⚠️ Bị chặn IP (403 Rate Limit), tạm nghỉ 30s... (lần thử {attempts})")
+                    self.log_listbox.see(tk.END)
+                    time.sleep(30)
+                else:
+                    self.log_listbox.insert(tk.END, f"❌ Lỗi: {err_msg}. Thử lại sau 10s... (lần thử {attempts})")
+                    self.log_listbox.see(tk.END)
+                    time.sleep(10)
+                    
+                if attempts >= 30:
+                    self.log_listbox.insert(tk.END, "❌ Quá nhiều lỗi liên tiếp (30 lần). Dừng tải số để đảm bảo an toàn.")
+                    self.log_listbox.see(tk.END)
+                    break
+                
+        self.log_listbox.insert(tk.END, f"🎉 Hoàn thành tải trước. Tổng cộng tải được {success_count} số.")
+        self.log_listbox.see(tk.END)
 
     def copy_log(self):
         """Sao chép toàn bộ log trong listbox vào clipboard."""

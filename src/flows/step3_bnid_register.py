@@ -116,6 +116,15 @@ async def run_step3(page: Page, email: str, password: str, birthday: str, has_bn
         await page.wait_for_selector("input#mail, input[name='mail']", timeout=20000)
         await human_delay(page, 600, 1200)
 
+        # Ẩn cookie banner nếu có để tránh che khuất input
+        try:
+            cookie_btn = await page.query_selector("button#onetrust-accept-btn-handler")
+            if cookie_btn and await cookie_btn.is_visible():
+                await cookie_btn.click()
+                await page.wait_for_timeout(500)
+        except Exception:
+            pass
+
         email_field = page.locator("input#mail, input[name='mail']")
         await email_field.fill(email, timeout=15000)
         await human_delay(page, 400, 800)
@@ -234,20 +243,19 @@ async def run_step3(page: Page, email: str, password: str, birthday: str, has_bn
                     break
                     
                 # Chỉ là terms review bình thường
-                elif "disp=terms" in current_url or "login.html" in current_url:
+                elif "disp=terms" in current_url:
+                    try:
+                        await page.wait_for_selector("input[type='checkbox']", timeout=10000)
+                    except Exception:
+                        pass
+                    
                     cbs = await page.query_selector_all("input[type='checkbox']")
                     for cb in cbs:
-                        await cb.evaluate("""el => { 
-                            if (!el.checked) {
-                                if (el.labels && el.labels.length > 0) {
-                                    el.labels[0].click();
-                                } else if (el.parentElement && el.parentElement.tagName === 'LABEL') {
-                                    el.parentElement.click();
-                                } else {
-                                    el.click();
-                                }
-                            }
-                        }""")
+                        try:
+                            await cb.check(force=True)
+                        except Exception:
+                            await cb.evaluate("el => { if (!el.checked) el.click(); }")
+                        await page.wait_for_timeout(300)
 
                     agree_btn = await page.query_selector("button#btn-agree-b, button#btn-accept-all")
                     if agree_btn:
@@ -259,6 +267,9 @@ async def run_step3(page: Page, email: str, password: str, birthday: str, has_bn
             except Exception:
                 pass
 
+        if "login.html" in page.url:
+            raise RuntimeError("BNID_LOGIN_ERROR: Đăng nhập không thành công, vẫn kẹt ở trang login (sai mật khẩu hoặc captcha).")
+            
         log.info(f"→ Đăng nhập hoàn tất. URL hiện tại: {page.url}")
         return "ALREADY_LOGGED_IN"
 
@@ -278,6 +289,15 @@ async def run_step3(page: Page, email: str, password: str, birthday: str, has_bn
     log.info(f"1. Điền Email ({email}) & Mật khẩu...")
     await page.wait_for_selector("input#mail, input[name='mail']", timeout=20000)
     await human_delay(page, 800, 1500)
+
+    # Ẩn cookie banner nếu có để tránh che khuất input
+    try:
+        cookie_btn = await page.query_selector("button#onetrust-accept-btn-handler")
+        if cookie_btn and await cookie_btn.is_visible():
+            await cookie_btn.click()
+            await page.wait_for_timeout(500)
+    except Exception:
+        pass
 
     email_field = page.locator("input#mail, input[name='mail']")
     await email_field.fill(email, timeout=15000)
@@ -371,39 +391,33 @@ async def run_step3(page: Page, email: str, password: str, birthday: str, has_bn
             log.info("   ✅ Giao diện nhập Quốc gia / Ngày sinh đã hiển thị.")
             break
             
-        # 4. Check nếu bị chèn ngang trang Terms Review (disp=terms hoặc login.html)
-        if "disp=terms" in current_url or "login.html" in current_url:
+        # 4. Check nếu bị chèn ngang trang Terms Review
+        # Nếu url chứa login.html và disp=terms, đây là trang Review điều khoản chứ không phải trang DOB
+        if "disp=terms" in current_url and "login.html" in current_url:
             log.info("   👉 Phát hiện trang Terms Review chèn ngang. Tick checkbox + click Continue...")
-            try:
-                checkbox = await page.wait_for_selector("input[type='checkbox']", timeout=5000)
-                if checkbox:
-                    # Chạy JS để mô phỏng click chuẩn xác vào thẻ label bọc ngoài (tránh React chặn event)
-                    await page.evaluate("""() => {
-                        const cb = document.querySelector("input[type='checkbox']");
-                        if (cb) {
-                            if (cb.labels && cb.labels.length > 0) {
-                                cb.labels[0].click();
-                            } else if (cb.parentElement && cb.parentElement.tagName === 'LABEL') {
-                                cb.parentElement.click();
-                            } else {
-                                cb.click();
-                            }
-                        }
-                    }""")
-                    log.info("   Đã tick checkbox 'I agree' thông qua Label click.")
-                    await page.wait_for_timeout(800)
-            except Exception as e:
-                log.warning(f"   Không thể tick checkbox: {e}")
-
+            
             try:
                 await page.evaluate("if (document.body) { window.scrollTo(0, document.body.scrollHeight); }")
                 await page.wait_for_timeout(500)
             except Exception:
                 pass
+                
+            try:
+                await page.wait_for_selector("input[type='checkbox']", timeout=10000)
+            except Exception:
+                pass
+                
+            cbs = await page.query_selector_all("input[type='checkbox']")
+            for cb in cbs:
+                try:
+                    await cb.check(force=True)
+                except Exception:
+                    await cb.evaluate("el => { if (!el.checked) el.click(); }")
+                await page.wait_for_timeout(300)
 
             try:
                 next_btns = await page.query_selector_all(
-                    "button:has-text('同意する'), button:has-text('次へ'), button:has-text('OK'), button:has-text('Continue'), button:has-text('Agree'), button:has-text('Accept'), button.c-button--primary:not(:has-text('Disagree'))"
+                    "button#btn-agree-b, button#btn-accept-all, button:has-text('同意する'), button:has-text('次へ'), button:has-text('OK'), button:has-text('Continue'), button.c-button--primary:not(:has-text('Disagree'))"
                 )
                 
                 next_btn = None
@@ -496,20 +510,20 @@ async def run_step3(page: Page, email: str, password: str, birthday: str, has_bn
 
     # Tick tất cả checkbox bổ sung đồng ý điều khoản & global consent
     await human_delay(page, 600, 1200)
+    
+    try:
+        await page.wait_for_selector("input[type='checkbox']", timeout=10000)
+    except Exception:
+        pass
+        
     extra_cbs = await page.query_selector_all("input[type='checkbox']")
     for cb in extra_cbs:
-        await cb.evaluate("""el => { 
-            if (!el.checked) {
-                if (el.labels && el.labels.length > 0) {
-                    el.labels[0].click();
-                } else if (el.parentElement && el.parentElement.tagName === 'LABEL') {
-                    el.parentElement.click();
-                } else {
-                    el.click();
-                }
-            }
-        }""")
+        try:
+            await cb.check(force=True)
+        except Exception:
+            await cb.evaluate("el => { if (!el.checked) el.click(); }")
         await page.wait_for_timeout(random.randint(200, 500))
+        
     log.info(f"   Đã tick {len(extra_cbs)} checkbox bổ sung.")
 
     # Submit thông tin cơ bản (Nút id='btn-agree-b')
@@ -550,7 +564,7 @@ async def run_step3(page: Page, email: str, password: str, birthday: str, has_bn
 
             # Tìm nút bấm để đi tiếp (Agree, Next, Continue, OK)
             next_btn = await page.query_selector(
-                "button:has-text('同意する'), button:has-text('次へ'), button:has-text('OK'), button:has-text('Continue'), button:has-text('Agree'), button:has-text('Accept'), button.c-button--primary"
+                "button:has-text('同意する'), button:has-text('次へ'), button:has-text('OK'), button:has-text('Continue'), button:has-text('Agree'), button:has-text('Accept'), button.c-button--primary, button:has-text('Proceed to Service'), a:has-text('Proceed to Service'), a.c-button--primary"
             )
             if next_btn and await next_btn.is_visible():
                 log.info("   Tìm thấy nút đi tiếp. Đang click để qua màn hình này...")

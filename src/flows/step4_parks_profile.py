@@ -84,6 +84,52 @@ async def run_step4(page: Page, email: str, password: str, nickname: str, birthd
         if not is_on_parks_form(current_url):
             log.info("   Phát hiện trang trung gian. Xử lý...")
 
+            # ── addEnd.html: "Account profile updated" - click "Proceed to Service" ──
+            if "addEnd.html" in current_url:
+                log.info("   👉 addEnd.html: Tìm nút 'Proceed to Service'...")
+                try:
+                    btn = await page.wait_for_selector(
+                        "a:has-text('Proceed to Service'), button:has-text('Proceed to Service'), a.c-button--primary",
+                        timeout=10000, state="visible"
+                    )
+                    await btn.click()
+                    await page.wait_for_load_state("domcontentloaded", timeout=30000)
+                    await page.wait_for_timeout(1500)
+                    continue
+                except Exception as e:
+                    log.warning(f"   addEnd: Không tìm thấy nút Proceed to Service: {e}")
+
+            # ── addgender.html: chọn giới tính → click Save ──
+            if "addgender.html" in current_url:
+                log.info("   👉 addgender.html: Chọn 'Prefer not to say' → click Save...")
+                try:
+                    # Click radio "Prefer not to say" hoặc bất kỳ radio nào
+                    for radio_sel in [
+                        "input[type='radio'][value='2']",    # Prefer not to say (thường value=2)
+                        "input[type='radio']:last-of-type",  # Radio cuối cùng
+                        "input[type='radio']",               # Bất kỳ radio nào
+                    ]:
+                        try:
+                            radio = await page.query_selector(radio_sel)
+                            if radio:
+                                await radio.evaluate("el => el.click()")
+                                await page.wait_for_timeout(500)
+                                log.info(f"   Đã chọn radio: {radio_sel}")
+                                break
+                        except Exception:
+                            continue
+                    # Click nút Save
+                    save_btn = await page.wait_for_selector(
+                        "button:has-text('Save'), button[type='submit'], button.c-button--primary",
+                        timeout=5000, state="visible"
+                    )
+                    await save_btn.click()
+                    await page.wait_for_load_state("domcontentloaded", timeout=30000)
+                    await page.wait_for_timeout(1500)
+                    continue
+                except Exception as e:
+                    log.warning(f"   addgender: Lỗi khi xử lý: {e}")
+
             # 0. Check lỗi fatal (region blocked, v.v) trên trang trung gian
             try:
                 page_text = await page.evaluate("() => document.body ? document.body.innerText : ''")
@@ -282,9 +328,12 @@ async def run_step4(page: Page, email: str, password: str, nickname: str, birthd
                 "button:has-text('OK')",
                 "button:has-text('Continue')",
                 "button:has-text('Complete account profile')",
+                "button:has-text('Proceed to Service')",
+                "a:has-text('Proceed to Service')",
                 "button:has-text('次へ')",
                 "button.c-button--primary",
                 "button[type='submit']",
+                "a.c-button--primary",
             ]:
                 try:
                     btn = await page.query_selector(btn_sel)

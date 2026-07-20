@@ -13,6 +13,7 @@ _BASE = config.SMS_BASE_URL.rstrip("/")
 _apikey: str = ""
 _apikey_expires: float = 0.0
 _apikey_lock = threading.Lock()
+_pre_fetched_lock = threading.Lock()
 
 _HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
 
@@ -151,10 +152,45 @@ def order_phone(
     country: str | None = None,
     service_id: str | None = None,
     server: str | None = None,
+    force_api: bool = False,
 ) -> dict:
     """
     Order phone number. Poll until phone number is ready.
     """
+    if getattr(config, "USE_PRE_FETCHED_NUMBERS", False) and not force_api:
+        pre_fetched_path = config.DATA_DIR / "pre_fetched_numbers.json"
+        with _pre_fetched_lock:
+            if pre_fetched_path.exists():
+                try:
+                    with open(pre_fetched_path, "r", encoding="utf-8") as f:
+                        numbers = json.load(f)
+                    if numbers and isinstance(numbers, list) and len(numbers) > 0:
+                        now = time.time() * 1000
+                        valid_num = None
+                        for num in numbers:
+                            if not num.get("is_used", False):
+                                num["is_used"] = True
+                                expires_at = num.get("expires_at", 0)
+                                # Kiểm tra xem số còn hạn ít nhất 2 phút không
+                                if expires_at > now + 120000:
+                                    valid_num = num
+                                    break
+                                else:
+                                    log.warning(f"📱 Số {num.get('phone')} đã quá hạn, bỏ qua.")
+                        
+                        unused_count = sum(1 for n in numbers if not n.get("is_used", False))
+                        
+                        with open(pre_fetched_path, "w", encoding="utf-8") as f:
+                            json.dump(numbers, f, indent=4)
+                            
+                        if valid_num:
+                            log.info(f"📱 Sử dụng số lấy trước: {valid_num.get('phone')} (còn {unused_count} số chưa dùng)")
+                            return valid_num
+                        else:
+                            log.warning("📱 Hết số lấy trước hợp lệ, chuyển sang gọi API trực tiếp...")
+                except Exception as e:
+                    log.error(f"Lỗi đọc pre_fetched_numbers.json: {e}")
+
     def _do_order(force=False):
         apikey = _get_apikey(force_refresh=force)
         params = {
@@ -164,7 +200,16 @@ def order_phone(
             "country":   country    or config.SMS_COUNTRY,
         }
         resp = requests.get(f"{_BASE}/api/ext/order", params=params, headers=_HEADERS, timeout=15)
-        resp.raise_for_status()
+        try:
+            resp.raise_for_status()
+        except requests.exceptions.HTTPError as e:
+            try:
+                err_data = resp.json()
+                log.error(f"HTTP {resp.status_code} Error: {err_data}")
+                return err_data, params
+            except Exception:
+                pass
+            raise e
         return resp.json(), params
 
     log.info(f"📱 Order phone | country={country or config.SMS_COUNTRY} serviceId={service_id or config.SMS_SERVICE_ID}")
@@ -195,7 +240,7 @@ def order_phone(
         log.info("📱 Số điện thoại chưa sẵn sàng, đang poll getSms để lấy số thực tế...")
         max_attempts = 12
         for attempt in range(1, max_attempts + 1):
-            time.sleep(1.5)
+            time.sleep(10)
             try:
                 get_resp = requests.get(
                     f"{_BASE}/api/ext/getSms",
@@ -213,7 +258,7 @@ def order_phone(
                 log.warning(f"  Poll số điện thoại thất bại (attempt {attempt}): {e}")
         
         if not phone or "xin số" in phone or not any(c.isdigit() for c in phone):
-            log.error("❌ Không lấy được số điện thoại thực tế từ API sau 18s — đang hủy số hoàn tiền...")
+            log.error("❌ Không lấy được số điện thoại thực tế từ API sau 120s — đang hủy số hoàn tiền...")
             try:
                 requests.get(f"{_BASE}/api/ext/cancel", params={"apikey": apikey, "pkey": pkey}, headers=_HEADERS, timeout=10)
             except Exception as ce:
