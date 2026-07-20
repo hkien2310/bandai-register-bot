@@ -76,6 +76,12 @@ def _normalize_status(status: str) -> str:
 
 
 class XlsxConnection:
+
+    def _atomic_save(self, wb, path):
+        import os
+        tmp_path = str(path) + ".tmp"
+        wb.save(tmp_path)
+        os.replace(tmp_path, str(path))
     """Service đọc/ghi dữ liệu từ file XLSX local. Thread-safe."""
 
     def __init__(self, xlsx_path: str):
@@ -87,7 +93,7 @@ class XlsxConnection:
             try:
                 wb = openpyxl.load_workbook(str(self.xlsx_path))
                 self._ensure_sheets(wb)
-                wb.save(str(self.xlsx_path))
+                self._atomic_save(wb, self.xlsx_path)
                 wb.close()
                 self._connected = True
                 log.info(f"✅ XlsxConnection: Kết nối thành công → {self.xlsx_path}")
@@ -166,7 +172,7 @@ class XlsxConnection:
                                 reset_fail += 1
 
                 if reset_proc + reset_fail > 0:
-                    wb.save(str(self.xlsx_path))
+                    self._atomic_save(wb, self.xlsx_path)
                 if reset_proc:
                     log.info(f"♻️  Reset {reset_proc} email PROCESSING → PENDING.")
                 if reset_fail:
@@ -246,7 +252,7 @@ class XlsxConnection:
                             "provider": active_sheet_name.lower(),
                             "mail_status": status,  # status gốc từ Mails sheet (PENDING/HAS_BNID)
                         })
-                wb.save(str(self.xlsx_path))
+                self._atomic_save(wb, self.xlsx_path)
                 wb.close()
                 log.info(f"📋 Đọc được {len(results)} email PENDING từ XLSX.")
                 return results
@@ -296,7 +302,7 @@ class XlsxConnection:
                             row[err_col].value = error_details
                         break
 
-                wb.save(str(self.xlsx_path))
+                self._atomic_save(wb, self.xlsx_path)
                 wb.close()
                 log.debug(f"📝 Cập nhật status '{status}' cho: {email}")
             except Exception as e:
@@ -371,7 +377,7 @@ class XlsxConnection:
                             ws.cell(row=next_row, column=col_map[key], value=val or "")
                     log.info(f"Insert: {email} -> status={data['status']} | bnid={str(data.get('bnid_user_code',''))[:14]}")
 
-                wb.save(str(self.xlsx_path))
+                self._atomic_save(wb, self.xlsx_path)
                 wb.close()
             except Exception as e:
                 log.error(f"Loi ghi Accounts vao XLSX: {e}")
@@ -514,7 +520,7 @@ class XlsxConnection:
             ws_proxies.column_dimensions["A"].width = 40
             ws_proxies.column_dimensions["B"].width = 12
 
-            wb.save(str(xlsx_path))
+            import os; tmp = str(xlsx_path)+".tmp"; wb.save(tmp); os.replace(tmp, str(xlsx_path))
             wb.close()
             log.info(f"✅ Đã tạo file XLSX mẫu tại: {xlsx_path}")
             return True
