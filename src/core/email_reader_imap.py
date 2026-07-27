@@ -126,13 +126,27 @@ def get_bandai_namco_otp_imap(
                                 return otp_code
             
             mail.logout()
+        except imaplib.IMAP4.error as auth_err:
+            err_str = str(auth_err)
+            if "AUTHENTICATIONFAILED" in err_str or "Invalid credentials" in err_str:
+                log.error(
+                    f"❌ [{target_email}] Lỗi đăng nhập IMAP ({otp_email}): Sai mật khẩu hoặc chưa tạo Mật khẩu ứng dụng (App Password)!\n"
+                    f"👉 HƯỚNG DẪN KHẮC PHỤC DÀNH CHO GMAIL:\n"
+                    f"   1. Truy cập tài khoản Google '{otp_email}' và bật 'Xác minh 2 bước' (2-Step Verification).\n"
+                    f"   2. Vào đường dẫn: https://myaccount.google.com/apppasswords để tạo 'Mật khẩu ứng dụng' (16 ký tự).\n"
+                    f"   3. Điền mật khẩu 16 ký tự này vào file XLSX (cột email_password) thay cho mật khẩu Gmail thông thường."
+                )
+                return ""
+            else:
+                log.error(f"[{target_email}] Lỗi IMAP Auth: {auth_err}")
         except Exception as e:
-            import traceback; log.error(f"[{target_email}] Lỗi IMAP: {e}\n{traceback.format_exc()}")
+            log.error(f"[{target_email}] Lỗi kết nối IMAP: {e}")
             
         time.sleep(5)
         
     log.warning(f"[{target_email}] Hết thời gian ({timeout}s) không nhận được OTP qua IMAP.")
     return ""
+
 
 def get_gmail_dot_alias(base_email: str, index: int) -> str:
     username, domain = base_email.split("@", 1)

@@ -78,26 +78,32 @@ class BrowserInstance:
                 **launch_args
             )
         else:
-            # Thử Chrome trước trên mọi hệ điều hành, Edge làm dự phòng
-            channels_to_try = ["chrome", "msedge"]
+            # Thử Chrome trước trên mọi hệ điều hành, Edge làm dự phòng, rồi tới Chromium mặc định của Playwright
+            channels_to_try = ["chrome", "msedge", None]
             
             for channel in channels_to_try:
                 try:
-                    log.info(f"Đang thử khởi động với trình duyệt: {channel}")
+                    ch_label = channel if channel else "chromium (Playwright)"
+                    log.info(f"Đang thử khởi động với trình duyệt: {ch_label}")
                     
-                    self.browser = await self.playwright.chromium.launch(
-                        channel=channel,
-                        headless=config.HEADLESS,
-                        args=base_args,
+                    launch_kwargs = {
+                        "headless": config.HEADLESS,
+                        "args": base_args,
                         **launch_args
-                    )
-                    log.info(f"✅ Khởi động thành công với: {channel}")
+                    }
+                    if channel:
+                        launch_kwargs["channel"] = channel
+
+                    self.browser = await self.playwright.chromium.launch(**launch_kwargs)
+                    log.info(f"✅ Khởi động thành công với: {ch_label}")
                     break
                 except Exception as e:
-                    log.warning(f"⚠️ Không thể khởi động bằng {channel}: {e}")
+                    ch_label = channel if channel else "chromium (Playwright)"
+                    log.warning(f"⚠️ Không thể khởi động bằng {ch_label}: {e}")
             
             if not self.browser:
-                raise Exception("Không tìm thấy Chrome hay Edge trên máy! Vui lòng cài đặt ít nhất một trong hai.")
+                raise Exception("Không thể khởi động trình duyệt (Chrome, Edge hoặc Chromium)!")
+
 
         self.context = await self.browser.new_context(
             ignore_https_errors=True,
@@ -154,7 +160,9 @@ class BrowserInstance:
         except Exception as e:
             log.warning(f"⚠️ Không thể kích hoạt Virtual WebAuthn: {e}")
 
+        await page.wait_for_timeout(500)
         return page
+
 
     def get_data_usage_mb(self) -> float:
         """Trả về dung lượng data đã sử dụng tính bằng MB."""

@@ -14,6 +14,53 @@ _apikey: str = ""
 _apikey_expires: float = 0.0
 _apikey_lock = threading.Lock()
 _pre_fetched_lock = threading.Lock()
+_manual_numbers_lock = threading.Lock()
+
+def get_manual_phone() -> dict:
+    """
+    Lấy số điện thoại chưa sử dụng tiếp theo từ file data/manual_phone_numbers.json.
+    """
+    manual_path = config.DATA_DIR / "manual_phone_numbers.json"
+    with _manual_numbers_lock:
+        if not manual_path.exists():
+            raise RuntimeError("Chưa có danh sách số điện thoại thủ công! Vui lòng bấm 'Nhập list SĐT' trên GUI để điền số.")
+
+        try:
+            with open(manual_path, "r", encoding="utf-8") as f:
+                numbers = json.load(f)
+        except Exception as e:
+            raise RuntimeError(f"Không thể đọc file manual_phone_numbers.json: {e}")
+
+        if not isinstance(numbers, list) or len(numbers) == 0:
+            raise RuntimeError("Danh sách số điện thoại thủ công đang trống!")
+
+        valid_num = None
+        for item in numbers:
+            if isinstance(item, str):
+                item = {"phone": item, "is_used": False}
+            if isinstance(item, dict) and not item.get("is_used", False):
+                item["is_used"] = True
+                valid_num = item
+                break
+
+        unused_count = sum(1 for n in numbers if isinstance(n, dict) and not n.get("is_used", False))
+
+        with open(manual_path, "w", encoding="utf-8") as f:
+            json.dump(numbers, f, indent=4, ensure_ascii=False)
+
+        if not valid_num:
+            raise RuntimeError("❌ Hết số điện thoại thủ công chưa sử dụng trong danh sách! Vui lòng nhập thêm số.")
+
+        phone_str = valid_num.get("phone", "").strip() if isinstance(valid_num, dict) else str(valid_num).strip()
+        log.info(f"📱 [SĐT Thủ Công] Sử dụng số: {phone_str} (còn {unused_count} số chưa dùng trong danh sách)")
+        return {
+            "phone": phone_str,
+            "pkey": "MANUAL",
+            "price": 0,
+            "balance": 0,
+            "expires_at": 0,
+        }
+
 
 _HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
 
@@ -157,6 +204,9 @@ def order_phone(
     """
     Order phone number. Poll until phone number is ready.
     """
+    if getattr(config, "USE_MANUAL_PHONE_LIST", False) and not force_api:
+        return get_manual_phone()
+
     if getattr(config, "USE_PRE_FETCHED_NUMBERS", False) and not force_api:
         pre_fetched_path = config.DATA_DIR / "pre_fetched_numbers.json"
         with _pre_fetched_lock:
@@ -336,8 +386,11 @@ def poll_sms_otp(
 
 def cancel(pkey: str) -> bool:
     """Cancel order and refund if no OTP received."""
+    if pkey in ("MANUAL", ""):
+        return True
     try:
         apikey = _get_apikey()
+
         resp = requests.get(
             f"{_BASE}/api/ext/cancel",
             params={"apikey": apikey, "pkey": pkey},

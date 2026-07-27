@@ -84,6 +84,9 @@ MAX_ACCOUNTS_PER_PROXY  = int(_get("max_accounts_per_proxy", 10))
 # Pre-fetched numbers
 USE_PRE_FETCHED_NUMBERS = _get("use_pre_fetched_numbers", False)
 
+# Manual phone numbers list
+USE_MANUAL_PHONE_LIST   = _get("use_manual_phone_list", False)
+
 # Active Sheet (Outlooks, Gmails, Iclouds)
 ACTIVE_SHEET            = _get("active_sheet", "Outlooks")
 

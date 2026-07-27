@@ -159,17 +159,30 @@ async def run_step5(page: Page, phone: str, pkey: str) -> str:
             log.error(f"   Lỗi poll SMS OTP: {e}")
             raise e
     else:
-        log.info("   SMS_ENABLED=false hoặc pkey=MANUAL. Bỏ qua tự động lấy OTP SMS.")
-        # Nếu chạy thủ công, vẫn cần dừng để người dùng thao tác
-        print("\n" + "=" * 70)
-        print("⏸️  DỪNG Ở BƯỚC XÁC THỰC SMS OTP (THỦ CÔNG)")
-        print("=" * 70)
-        print(f"  Số điện thoại : {phone}")
-        print("  Hãy điền OTP thủ công trên trình duyệt và xác nhận.")
-        print("  Sau khi hoàn tất, nhấn [ENTER] tại đây để tiếp tục.")
-        print("=" * 70 + "\n")
-        await asyncio.to_thread(input, "Nhấn phím [ENTER] sau khi đã xác thực xong...")
+        log.info("   [Màn hình SMS OTP Thủ Công] Bỏ qua tự động lấy OTP API.")
+        log.info(f"   ⏸️ SĐT [{phone}] — Vui lòng nhập OTP trực tiếp trên trình duyệt và bấm Xác nhận...")
 
-    # Chờ một lúc cho chắc chắn
-    await page.wait_for_timeout(3000)
-    return True
+        max_wait = getattr(config, "SMS_OTP_TIMEOUT", 300)
+        start_time = time.time()
+        success = False
+
+        while time.time() - start_time < max_wait:
+            if getattr(config, "STOP_FLAG", False):
+                log.warning("🛑 Nhận lệnh STOP trong khi chờ nhập OTP thủ công.")
+                raise RuntimeError("STOP_FLAG")
+
+            current_url = page.url
+            if "top.html" in current_url or "member_mypage.html" in current_url:
+                log.info(f"   ✅ Đã phát hiện đăng ký hoàn tất trên trình duyệt! URL: {current_url}")
+                success = True
+                break
+
+            await page.wait_for_timeout(1000)
+
+        if not success:
+            log.error(f"❌ Quá thời gian ({max_wait}s) chưa hoàn tất nhập OTP thủ công!")
+            raise RuntimeError("Manual OTP Verification Timeout")
+
+        await page.wait_for_timeout(2000)
+        return "SUCCESS"
+

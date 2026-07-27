@@ -539,8 +539,8 @@ async def run_step4(page: Page, email: str, password: str, nickname: str, birthd
 
 
 
-    # ─── 7. Thuê số điện thoại ───
-    if not config.SMS_ENABLED:
+    # ─── 7. Thuê / Lấy số điện thoại ───
+    if not config.SMS_ENABLED and not getattr(config, "USE_MANUAL_PHONE_LIST", False):
         log.warning("⚠️ SMS_ENABLED=false. Dừng để nhập số thủ công...")
         await asyncio.to_thread(input, "Nhấn Enter sau khi đã điền số điện thoại...")
         return "MANUAL", "MANUAL"

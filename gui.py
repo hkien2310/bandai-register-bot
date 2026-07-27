@@ -77,6 +77,9 @@ class NamcoBotGUI:
         self.use_pre_fetched_numbers_var = tk.BooleanVar()
         self.use_pre_fetched_numbers_var.set(bool(cfg.get("use_pre_fetched_numbers", False)))
 
+        self.use_manual_phone_list_var = tk.BooleanVar()
+        self.use_manual_phone_list_var.set(bool(cfg.get("use_manual_phone_list", False)))
+
         self.browser_path_var = tk.StringVar()
         self.browser_path_var.set(cfg.get("browser_path", ""))
 
@@ -126,31 +129,36 @@ class NamcoBotGUI:
         ttk.Entry(frame, textvariable=self.default_pref_var, width=15).grid(row=4, column=1, sticky=tk.W, pady=5)
 
         chk_frame = ttk.Frame(frame)
-        chk_frame.grid(row=5, column=0, columnspan=3, sticky=tk.W, pady=10)
-        ttk.Checkbutton(chk_frame, text="Chạy ngầm (Headless)", variable=self.headless_var).pack(side=tk.LEFT, padx=10)
-        ttk.Checkbutton(chk_frame, text="Dùng Proxy", variable=self.proxy_var).pack(side=tk.LEFT, padx=10)
-        ttk.Checkbutton(chk_frame, text="Dùng số lấy trước", variable=self.use_pre_fetched_numbers_var).pack(side=tk.LEFT, padx=10)
-        ttk.Button(chk_frame, text="⬇️ Tải trước số", command=self.prefetch_numbers_gui).pack(side=tk.LEFT, padx=10)
-        ttk.Button(chk_frame, text="🛑 Dừng tải số", command=self.stop_prefetch_gui).pack(side=tk.LEFT, padx=10)
+        chk_frame.grid(row=5, column=0, columnspan=3, sticky=tk.W, pady=5)
+        ttk.Checkbutton(chk_frame, text="Chạy ngầm (Headless)", variable=self.headless_var).pack(side=tk.LEFT, padx=5)
+        ttk.Checkbutton(chk_frame, text="Dùng Proxy", variable=self.proxy_var).pack(side=tk.LEFT, padx=5)
+        ttk.Checkbutton(chk_frame, text="Dùng số lấy trước", variable=self.use_pre_fetched_numbers_var).pack(side=tk.LEFT, padx=5)
+        ttk.Button(chk_frame, text="⬇️ Tải trước số", command=self.prefetch_numbers_gui).pack(side=tk.LEFT, padx=2)
+        ttk.Button(chk_frame, text="🛑 Dừng tải số", command=self.stop_prefetch_gui).pack(side=tk.LEFT, padx=2)
+
+        manual_frame = ttk.Frame(frame)
+        manual_frame.grid(row=6, column=0, columnspan=3, sticky=tk.W, pady=(0, 5))
+        ttk.Checkbutton(manual_frame, text="Dùng list SĐT thủ công", variable=self.use_manual_phone_list_var).pack(side=tk.LEFT, padx=5)
+        ttk.Button(manual_frame, text="📝 Nhập list SĐT", command=self.open_manual_phone_dialog).pack(side=tk.LEFT, padx=5)
 
         # XLSX file selector
         xlsx_frame = ttk.Frame(frame)
-        xlsx_frame.grid(row=6, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(0, 5))
+        xlsx_frame.grid(row=7, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(0, 5))
+
         ttk.Label(xlsx_frame, text="📄 File dữ liệu XLSX:").pack(side=tk.LEFT)
         self.xlsx_entry = ttk.Entry(xlsx_frame, textvariable=self.xlsx_path_var, width=40)
         self.xlsx_entry.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
         ttk.Button(xlsx_frame, text="Chọn file", command=self.choose_xlsx).pack(side=tk.LEFT, padx=2)
-        ttk.Button(xlsx_frame, text="Tạo file mẫu", command=self.create_xlsx_template).pack(side=tk.LEFT, padx=2)
 
         # Active Sheet selector
         sheet_frame = ttk.Frame(frame)
-        sheet_frame.grid(row=7, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(0, 5))
+        sheet_frame.grid(row=8, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(0, 5))
         ttk.Label(sheet_frame, text="🗂 Chọn luồng Mail cần chạy:").pack(side=tk.LEFT)
         self.sheet_combo = ttk.Combobox(sheet_frame, textvariable=self.active_sheet_var, values=["Outlooks", "Gmails", "Iclouds"], state="readonly", width=15)
         self.sheet_combo.pack(side=tk.LEFT, padx=5)
 
         btn_frame = ttk.Frame(frame)
-        btn_frame.grid(row=8, column=0, columnspan=3, pady=10)
+        btn_frame.grid(row=9, column=0, columnspan=3, pady=10)
 
         self.start_btn = ttk.Button(btn_frame, text="🚀 BẮT ĐẦU CHẠY", command=self.start_bot, width=20)
         self.start_btn.pack(side=tk.LEFT, padx=5)
@@ -158,14 +166,14 @@ class NamcoBotGUI:
         self.stop_btn = ttk.Button(btn_frame, text="🛑 DỪNG LẠI", command=self.stop_bot, width=20, state=tk.DISABLED)
         self.stop_btn.pack(side=tk.LEFT, padx=5)
 
-        # Thống kê Frame (Row 9)
+        # Thống kê Frame (Row 10)
         stats_frame = ttk.Frame(frame)
-        stats_frame.grid(row=9, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
+        stats_frame.grid(row=10, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
         self.stats_label = ttk.Label(stats_frame, text="📊 Pending: 0 | Processing: 0 | Success: 0 | Failed: 0", font=("Arial", 11, "bold"), foreground="#0052cc")
         self.stats_label.pack(side=tk.LEFT)
 
         log_label_frame = ttk.Frame(frame)
-        log_label_frame.grid(row=10, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
+        log_label_frame.grid(row=11, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
         
         ttk.Label(log_label_frame, text="Tiến trình đang chạy:").pack(side=tk.LEFT)
         self.copy_btn = ttk.Button(log_label_frame, text="📋 Sao chép Log", command=self.copy_log)
@@ -175,10 +183,10 @@ class NamcoBotGUI:
         self.clear_btn.pack(side=tk.RIGHT, padx=2)
 
         self.log_listbox = tk.Listbox(frame, height=10, bg="#f0f0f0", fg="#333", font=("Arial", 11))
-        self.log_listbox.grid(row=11, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S))
+        self.log_listbox.grid(row=12, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S))
 
         frame.columnconfigure(1, weight=1)
-        frame.rowconfigure(11, weight=1)
+        frame.rowconfigure(12, weight=1)
 
     def choose_browser(self):
         path = filedialog.askopenfilename(title="Chọn file chạy trình duyệt (Chromium/Chrome)")
@@ -195,26 +203,6 @@ class NamcoBotGUI:
             self.xlsx_path_var.set(path)
             self.save_settings()
 
-    def create_xlsx_template(self):
-        """Tạo file XLSX mẫu mới tại đường dẫn do người dùng chọn."""
-        path = filedialog.asksaveasfilename(
-            title="Tạo file XLSX mẫu",
-            defaultextension=".xlsx",
-            filetypes=[("Excel files", "*.xlsx")],
-            initialfile="data_bandai.xlsx"
-        )
-        if not path:
-            return
-        from src.connections.xlsx_connection import XlsxConnection
-        ok = XlsxConnection.create_template(path)
-        if ok:
-            self.xlsx_path_var.set(path)
-            self.save_settings()
-            from tkinter import messagebox
-            messagebox.showinfo("✅ Đã tạo file mẫu", f"File mẫu đã được tạo tại:\n{path}\n\nBạn có thể mở bằng Excel để điền email vào cột A của sheet 'Mails'.")
-        else:
-            from tkinter import messagebox
-            messagebox.showerror("❌ Lỗi", "Không thể tạo file XLSX mẫu!")
 
     def update_logs(self):
         user_keywords = [
@@ -280,6 +268,7 @@ class NamcoBotGUI:
         cfg["headless"] = self.headless_var.get()
         cfg["use_proxy"] = self.proxy_var.get()
         cfg["use_pre_fetched_numbers"] = self.use_pre_fetched_numbers_var.get()
+        cfg["use_manual_phone_list"] = self.use_manual_phone_list_var.get()
         cfg["browser_path"] = self.browser_path_var.get()
         cfg["default_dob"] = self.default_dob_var.get()
         cfg["default_prefecture"] = self.default_pref_var.get()
@@ -294,13 +283,32 @@ class NamcoBotGUI:
             from tkinter import messagebox
             messagebox.showerror(
                 "❌ Chưa chọn file dữ liệu",
-                "Vui lòng chọn file XLSX chứa danh sách email trước khi chạy.\n"
-                "Nếu chưa có file, hãy bấm 'Tạo file mẫu' để tạo mới."
+                "Vui lòng chọn file XLSX chứa danh sách email trước khi chạy."
             )
             return
 
+        if self.use_manual_phone_list_var.get():
+            manual_path = ROOT_DIR / "data" / "manual_phone_numbers.json"
+            has_unused = False
+            if manual_path.exists():
+                try:
+                    with open(manual_path, "r", encoding="utf-8") as f:
+                        numbers = json.load(f)
+                    has_unused = any(isinstance(n, dict) and not n.get("is_used", False) for n in numbers)
+                except Exception:
+                    pass
+            if not has_unused:
+                from tkinter import messagebox
+                if messagebox.askyesno(
+                    "❌ Hết số điện thoại thủ công",
+                    "Chế độ 'Dùng list SĐT thủ công' đang bật nhưng chưa có số điện thoại chưa dùng.\n\nBạn có muốn mở cửa sổ nhập list SĐT ngay không?"
+                ):
+                    self.open_manual_phone_dialog()
+                return
+
         # Lưu config trước
         self.save_settings()
+
 
         # Import src.config SAU KHI lưu để nó đọc giá trị mới nhất
         import importlib
@@ -463,7 +471,120 @@ class NamcoBotGUI:
         self.log_listbox.insert(tk.END, f"🎉 Hoàn thành tải trước. Tổng cộng tải được {success_count} số.")
         self.log_listbox.see(tk.END)
 
+    def open_manual_phone_dialog(self):
+        """Mở popup nhập danh sách số điện thoại thủ công."""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Danh sách số điện thoại thủ công")
+        dialog.geometry("520x480")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        manual_path = ROOT_DIR / "data" / "manual_phone_numbers.json"
+        
+        # Load existing numbers
+        existing_numbers = []
+        if manual_path.exists():
+            try:
+                with open(manual_path, "r", encoding="utf-8") as f:
+                    existing_numbers = json.load(f)
+            except Exception:
+                existing_numbers = []
+
+        lbl_info = ttk.Label(
+            dialog,
+            text="Dán danh sách số điện thoại vào ô bên dưới (mỗi số 1 dòng hoặc cách nhau bởi dấu phẩy):",
+            wraplength=480,
+            justify=tk.LEFT
+        )
+        lbl_info.pack(padx=15, pady=(15, 5), anchor=tk.W)
+
+        # ScrolledText box
+        txt_box = scrolledtext.ScrolledText(dialog, width=55, height=14, font=("Consolas", 10))
+        txt_box.pack(padx=15, pady=5, fill=tk.BOTH, expand=True)
+
+        # Build initial text content from existing_numbers
+        lines = []
+        for num in existing_numbers:
+            if isinstance(num, dict):
+                p = num.get("phone", "")
+                used = num.get("is_used", False)
+                if p:
+                    lines.append(f"{p}" + (" (Đã dùng)" if used else ""))
+            elif isinstance(num, str):
+                lines.append(num)
+        
+        txt_box.insert(tk.END, "\n".join(lines))
+
+        # Status label
+        unused_cnt = sum(1 for n in existing_numbers if isinstance(n, dict) and not n.get("is_used", False))
+        used_cnt = sum(1 for n in existing_numbers if isinstance(n, dict) and n.get("is_used", False))
+        status_var = tk.StringVar(value=f"📊 Tổng số: {len(existing_numbers)} | Chưa dùng: {unused_cnt} | Đã dùng: {used_cnt}")
+        
+        lbl_status = ttk.Label(dialog, textvariable=status_var, font=("Arial", 10, "bold"), foreground="#0052cc")
+        lbl_status.pack(padx=15, pady=5, anchor=tk.W)
+
+        btn_frame = ttk.Frame(dialog)
+        btn_frame.pack(padx=15, pady=(5, 15), fill=tk.X)
+
+        def save_manual_numbers():
+            raw_text = txt_box.get("1.0", tk.END)
+            tokens = [t.strip() for t in re.split(r'[\n,\s]+', raw_text) if t.strip()]
+            
+            existing_map = {}
+            for item in existing_numbers:
+                if isinstance(item, dict):
+                    existing_map[item.get("phone", "").strip()] = item.get("is_used", False)
+
+            new_list = []
+            seen = set()
+            for tok in tokens:
+                clean_phone = re.sub(r'\(.*?\)', '', tok).strip()
+                clean_phone = re.sub(r'[^\d+]', '', clean_phone)
+                if not clean_phone or len(clean_phone) < 8:
+                    continue
+                
+                if clean_phone not in seen:
+                    seen.add(clean_phone)
+                    was_used = existing_map.get(clean_phone, False)
+                    new_list.append({
+                        "phone": clean_phone,
+                        "is_used": was_used
+                    })
+
+            data_dir = ROOT_DIR / "data"
+            data_dir.mkdir(exist_ok=True)
+
+            with open(manual_path, "w", encoding="utf-8") as f:
+                json.dump(new_list, f, indent=4, ensure_ascii=False)
+
+            new_unused = sum(1 for n in new_list if not n["is_used"])
+            new_used = sum(1 for n in new_list if n["is_used"])
+            messagebox.showinfo(
+                "Lưu thành công",
+                f"✅ Đã lưu {len(new_list)} số điện thoại thủ công!\n"
+                f"• Chưa dùng: {new_unused}\n"
+                f"• Đã dùng: {new_used}"
+            )
+            dialog.destroy()
+
+        def reset_status():
+            if messagebox.askyesno("Xác nhận", "Bạn có muốn đặt lại trạng thái 'Chưa dùng' cho TẤT CẢ các số không?"):
+                raw_text = txt_box.get("1.0", tk.END)
+                clean_text = re.sub(r'\(Đã dùng\)', '', raw_text)
+                txt_box.delete("1.0", tk.END)
+                txt_box.insert(tk.END, clean_text.strip())
+                
+                for n in existing_numbers:
+                    if isinstance(n, dict):
+                        n["is_used"] = False
+                status_var.set(f"📊 Tổng số: {len(existing_numbers)} | Chưa dùng: {len(existing_numbers)} | Đã dùng: 0")
+
+        ttk.Button(btn_frame, text="💾 Lưu danh sách", command=save_manual_numbers, width=16).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="🔄 Đặt lại chưa dùng", command=reset_status, width=18).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="Đóng", command=dialog.destroy, width=10).pack(side=tk.RIGHT, padx=5)
+
     def copy_log(self):
+
         """Sao chép toàn bộ log trong listbox vào clipboard."""
         logs = self.log_listbox.get(0, tk.END)
         if logs:

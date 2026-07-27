@@ -82,7 +82,7 @@ async def main_async():
     from queue import Queue
 
     # 4. Kiểm tra số dư SMS trước khi chạy mass
-    if config.SMS_ENABLED:
+    if config.SMS_ENABLED and not getattr(config, "USE_MANUAL_PHONE_LIST", False):
         from src.core.sms_service import check_balance
         balance = check_balance()
         if balance < 0:
@@ -91,6 +91,7 @@ async def main_async():
         elif balance < 25:
             log.error(f"❌ Tài khoản SMS chỉ còn {balance} điểm/yên, không đủ để thuê số (giá ~25/số). Vui lòng nạp thêm tiền!")
             sys.exit(1)
+
 
     # 5. Vòng lặp chính: Đọc email PENDING từ Sheets và chạy
     while True:
