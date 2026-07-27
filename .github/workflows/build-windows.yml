@@ -84,9 +84,17 @@ jobs:
           --hidden-import=pycparser `
           --hidden-import=cffi `
           --hidden-import=cryptography `
+          --hidden-import=tkinter `
+          --hidden-import=tkinter.ttk `
+          --hidden-import=tkinter.scrolledtext `
+          --hidden-import=tkinter.messagebox `
+          --hidden-import=tkinter.filedialog `
+          --hidden-import=tkinter.simpledialog `
           --collect-all playwright `
           --collect-all openpyxl `
+          --collect-all tkinter `
           gui.py
+
 
 
     - name: Create data directory
