@@ -598,17 +598,29 @@ async def run_step4(page: Page, email: str, password: str, nickname: str, birthd
         if not tel_inp:
             raise ValueError("Không tìm thấy input TEL trong form Parks!")
 
-        log.info("   Order số mới...")
+        is_manual_list = getattr(config, "USE_MANUAL_PHONE_LIST", False)
+        if is_manual_list:
+            log.info("   Lấy số điện thoại từ danh sách thủ công...")
+        else:
+            log.info("   Order số mới từ API...")
+
         try:
             order = sms_service.order_phone()
             raw_phone = order["phone"]
             pkey = order["pkey"]
             phone = format_jp_phone(raw_phone)
-            log.info(f"   Thuê: {raw_phone} → {phone} | PKey: {pkey[:12]}...")
+            if is_manual_list:
+                log.info(f"   📱 [SĐT Thủ Công] Sử dụng số: {raw_phone} → {phone}")
+            else:
+                log.info(f"   Thuê: {raw_phone} → {phone} | PKey: {pkey[:12]}...")
         except Exception as order_err:
+            if is_manual_list or "Hết số điện thoại thủ công" in str(order_err):
+                log.error(f"   ❌ {order_err}")
+                raise order_err
             log.warning(f"   ⚠️ Lỗi khi order số điện thoại từ API: {order_err}. Đợi 10 giây và thuê lại số khác...")
             await page.wait_for_timeout(10000)
             continue
+
 
 
         # Clear rồi mới fill để tránh trạng thái lỗi cũ còn sót
