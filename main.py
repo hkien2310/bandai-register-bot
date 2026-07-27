@@ -106,17 +106,33 @@ async def main_async():
             log.info("✅ Không còn tài khoản nào có trạng thái PENDING/Trống trên Sheets. Hoàn tất!")
             break
 
-        config.SESSION_STATS["PENDING"] += len(emails_to_process)
+        # Nếu bật chế độ SĐT Thủ Công: Kiểm tra số dư SĐT thủ công còn lại
+        if getattr(config, "USE_MANUAL_PHONE_LIST", False):
+            from src.core.sms_service import get_unused_manual_phone_count
+            unused_manual_phones = get_unused_manual_phone_count()
+            if unused_manual_phones <= 0:
+                log.error("❌ [Chế độ SĐT Thủ Công] Đã hết số điện thoại chưa dùng trong danh sách thủ công (0 số). Dừng bot ngay lập tức!")
+                config.STOP_FLAG = True
+                break
+            
+            if len(emails_to_process) > unused_manual_phones:
+                log.warning(f"⚠️ [Chế độ SĐT Thủ Công] Có {len(emails_to_process)} email PENDING nhưng chỉ có {unused_manual_phones} SĐT chưa dùng. Tự động điều chỉnh chạy {unused_manual_phones} tài khoản.")
+                emails_to_process = emails_to_process[:unused_manual_phones]
+
+        actual_task_count = len(emails_to_process)
+        effective_worker_count = min(worker_count, actual_task_count)
+
+        log.info(f"🚀 Đang xử lý mẻ {actual_task_count} email với {effective_worker_count} worker luồng song song (Cấu hình: {worker_count} worker)...")
+
+        config.SESSION_STATS["PENDING"] += actual_task_count
 
         email_queue = Queue()
         for email_data in emails_to_process:
             email_queue.put(email_data)
 
-        log.info(f"Đang xử lý mẻ {len(emails_to_process)} email...")
-
-        # Khởi chạy các worker không đồng bộ song song
+        # Khởi chạy đúng số lượng effective_worker_count (tránh bật thừa worker vô ích)
         tasks = []
-        for i in range(1, worker_count + 1):
+        for i in range(1, effective_worker_count + 1):
             if config.STOP_FLAG:
                 break
             tasks.append(run_worker_async(i, email_queue, proxy_pool, sheets_manager))
@@ -125,6 +141,7 @@ async def main_async():
             for _ in range(4):
                 if config.STOP_FLAG: break
                 await asyncio.sleep(0.5)
+
 
         # Luôn chờ các tiến trình con hoàn tất dù có lỗi hay người dùng STOP
         if tasks:

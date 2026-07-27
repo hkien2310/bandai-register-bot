@@ -16,6 +16,23 @@ _apikey_lock = threading.Lock()
 _pre_fetched_lock = threading.Lock()
 _manual_numbers_lock = threading.Lock()
 
+def get_unused_manual_phone_count() -> int:
+    """
+    Trả về số lượng SĐT thủ công chưa sử dụng.
+    """
+    manual_path = config.DATA_DIR / "manual_phone_numbers.json"
+    with _manual_numbers_lock:
+        if not manual_path.exists():
+            return 0
+        try:
+            with open(manual_path, "r", encoding="utf-8") as f:
+                numbers = json.load(f)
+            if isinstance(numbers, list):
+                return sum(1 for n in numbers if (isinstance(n, dict) and not n.get("is_used", False)) or isinstance(n, str))
+        except Exception:
+            pass
+        return 0
+
 def get_manual_phone() -> dict:
     """
     Lấy số điện thoại chưa sử dụng tiếp theo từ file data/manual_phone_numbers.json.
@@ -23,15 +40,18 @@ def get_manual_phone() -> dict:
     manual_path = config.DATA_DIR / "manual_phone_numbers.json"
     with _manual_numbers_lock:
         if not manual_path.exists():
+            config.STOP_FLAG = True
             raise RuntimeError("Chưa có danh sách số điện thoại thủ công! Vui lòng bấm 'Nhập list SĐT' trên GUI để điền số.")
 
         try:
             with open(manual_path, "r", encoding="utf-8") as f:
                 numbers = json.load(f)
         except Exception as e:
+            config.STOP_FLAG = True
             raise RuntimeError(f"Không thể đọc file manual_phone_numbers.json: {e}")
 
         if not isinstance(numbers, list) or len(numbers) == 0:
+            config.STOP_FLAG = True
             raise RuntimeError("Danh sách số điện thoại thủ công đang trống!")
 
         valid_num = None
@@ -49,7 +69,9 @@ def get_manual_phone() -> dict:
             json.dump(numbers, f, indent=4, ensure_ascii=False)
 
         if not valid_num:
-            raise RuntimeError("❌ Hết số điện thoại thủ công chưa sử dụng trong danh sách! Vui lòng nhập thêm số.")
+            config.STOP_FLAG = True
+            log.warning("🛑 Hết số điện thoại thủ công! Kích hoạt STOP_FLAG để dừng toàn bộ tiến trình.")
+            raise RuntimeError("❌ Hết số điện thoại thủ công chưa sử dụng trong danh sách! Dừng toàn bộ chương trình.")
 
         phone_str = valid_num.get("phone", "").strip() if isinstance(valid_num, dict) else str(valid_num).strip()
         log.info(f"📱 [SĐT Thủ Công] Sử dụng số: {phone_str} (còn {unused_count} số chưa dùng trong danh sách)")
@@ -60,6 +82,7 @@ def get_manual_phone() -> dict:
             "balance": 0,
             "expires_at": 0,
         }
+
 
 
 _HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
