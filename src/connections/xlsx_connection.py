@@ -336,21 +336,38 @@ class XlsxConnection:
         with self._lock:
             try:
                 wb = openpyxl.load_workbook(str(self.xlsx_path))
-                ws = wb["Accounts"]
-                sheet_headers = self._get_headers(ws)
+                
+                # Tìm sheet Accounts (case-insensitive hoặc tự tạo)
+                target_sheet_name = None
+                for sname in wb.sheetnames:
+                    if sname.strip().lower() in ("accounts", "account"):
+                        target_sheet_name = sname
+                        break
+                
+                if not target_sheet_name:
+                    ws = wb.create_sheet("Accounts")
+                    ws.append(ACCOUNTS_HEADERS)
+                    target_sheet_name = "Accounts"
+                else:
+                    ws = wb[target_sheet_name]
 
-                # Them cot con thieu vao cuoi sheet
+                sheet_headers = self._get_headers(ws)
+                if not sheet_headers or "email" not in sheet_headers:
+                    ws.cell(row=1, column=1, value="email")
+                    sheet_headers = self._get_headers(ws)
+
+                # Thêm cột còn thiếu vào cuối sheet
                 for col_name in ACCOUNTS_HEADERS:
                     if col_name not in sheet_headers:
                         new_col_num = len(sheet_headers) + 1  # 1-indexed
                         ws.cell(row=1, column=new_col_num, value=col_name)
                         sheet_headers.append(col_name)
 
-                # col_map: ten cot -> so cot 1-indexed (chinh xac, khong phu thuoc thu tu tuple)
+                # col_map: ten cot -> so cot 1-indexed
                 col_map = {h: idx + 1 for idx, h in enumerate(sheet_headers)}
-                email_col_num = col_map["email"]
+                email_col_num = col_map.get("email", 1)
 
-                # Tim dong co email trung
+                # Tìm dòng có email trùng
                 target_row_num = None
                 for row in ws.iter_rows(min_row=2):
                     cell_val = str(ws.cell(row=row[0].row, column=email_col_num).value or "").strip()
@@ -359,7 +376,7 @@ class XlsxConnection:
                         break
 
                 if target_row_num is not None:
-                    # UPDATE: dung ws.cell(row, col) de ghi dung vi tri, khong bi lech
+                    # UPDATE: dùng ws.cell(row, col) để ghi đúng vị trí
                     for key, val in data.items():
                         if key in col_map:
                             col_num = col_map[key]
@@ -368,19 +385,20 @@ class XlsxConnection:
                                 ws.cell(row=target_row_num, column=col_num, value=val)
                             elif existing is None:
                                 ws.cell(row=target_row_num, column=col_num, value="")
-                    log.info(f"Update: {email} -> status={data['status']} | bnid={str(data.get('bnid_user_code',''))[:14]}")
+                    log.info(f"📊 [Accounts Sheet] Cập nhật thành công: {email} | Pass: {data.get('bandai_password','')} | SĐT: {data.get('phone','')} | Status: {data['status']}")
                 else:
-                    # INSERT: dung ws.cell(row, col) de ghi dung tung cot
+                    # INSERT: dùng ws.cell(row, col) để ghi mới
                     next_row = ws.max_row + 1
                     for key, val in data.items():
                         if key in col_map:
                             ws.cell(row=next_row, column=col_map[key], value=val or "")
-                    log.info(f"Insert: {email} -> status={data['status']} | bnid={str(data.get('bnid_user_code',''))[:14]}")
+                    log.info(f"📊 [Accounts Sheet] Ghi mới thành công: {email} | Pass: {data.get('bandai_password','')} | SĐT: {data.get('phone','')} | Status: {data['status']}")
 
                 self._atomic_save(wb, self.xlsx_path)
                 wb.close()
             except Exception as e:
-                log.error(f"Loi ghi Accounts vao XLSX: {e}")
+                log.error(f"❌ [LỖI GHI SHEET ACCOUNTS] Không thể ghi email {email} vào file Excel: {e}", exc_info=True)
+
 
 
     def get_account_status(self, email: str) -> str:
