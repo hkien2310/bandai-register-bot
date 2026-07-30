@@ -385,14 +385,15 @@ class XlsxConnection:
                                 ws.cell(row=target_row_num, column=col_num, value=val)
                             elif existing is None:
                                 ws.cell(row=target_row_num, column=col_num, value="")
-                    log.info(f"📊 [Accounts Sheet] Cập nhật thành công: {email} | Pass: {data.get('bandai_password','')} | SĐT: {data.get('phone','')} | Status: {data['status']}")
+                    log.debug(f"Update: {email} -> status={data['status']} | phone={data.get('phone','')}")
                 else:
                     # INSERT: dùng ws.cell(row, col) để ghi mới
                     next_row = ws.max_row + 1
                     for key, val in data.items():
                         if key in col_map:
                             ws.cell(row=next_row, column=col_map[key], value=val or "")
-                    log.info(f"📊 [Accounts Sheet] Ghi mới thành công: {email} | Pass: {data.get('bandai_password','')} | SĐT: {data.get('phone','')} | Status: {data['status']}")
+                    log.debug(f"Insert: {email} -> status={data['status']} | phone={data.get('phone','')}")
+
 
                 self._atomic_save(wb, self.xlsx_path)
                 wb.close()
