@@ -339,6 +339,12 @@ class NamcoBotGUI:
         import src.config as bot_config
         bot_config.STOP_FLAG = True
         
+        try:
+            from src.core.sms_service import reset_manual_phone_in_use_flags
+            reset_manual_phone_in_use_flags()
+        except Exception:
+            pass
+
         # Gọi huỷ tác vụ lập tức từ các luồng worker đang chờ (Thread-safe cancellation)
         if hasattr(bot_config, "ACTIVE_WORKERS"):
             for worker_info in bot_config.ACTIVE_WORKERS:
@@ -346,6 +352,7 @@ class NamcoBotGUI:
                     worker_info["loop"].call_soon_threadsafe(worker_info["task"].cancel)
                 except Exception:
                     pass
+
 
         # Kill trực tiếp các tiến trình Chrome/Chromium của bot ở cấp độ OS (Thread-safe & Tức thời)
         import subprocess
