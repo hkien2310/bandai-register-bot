@@ -9,6 +9,16 @@ from src.utils.logger import get_logger
 
 log = get_logger("sms_service")
 
+def format_jp_phone(phone_raw: str) -> str:
+    phone = str(phone_raw or "").strip().replace("+", "").replace("-", "").replace(" ", "")
+    if phone.startswith("81"):
+        phone = "0" + phone[2:]
+    if not phone.startswith("0") and len(phone) in [9, 10]:
+        phone = "0" + phone
+    return phone
+
+
+
 _BASE = config.SMS_BASE_URL.rstrip("/")
 _apikey: str = ""
 _apikey_expires: float = 0.0
