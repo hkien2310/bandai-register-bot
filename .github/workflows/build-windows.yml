@@ -51,7 +51,12 @@ jobs:
       run: |
         echo "{}" > config.json
 
+    - name: Run Codebase Integrity Tests
+      run: |
+        python tests/test_codebase_integrity.py
+
     - name: Build EXE with PyInstaller
+
       run: |
         pyinstaller --noconfirm --onedir --windowed `
           --name "NamcoBot" `

@@ -14,7 +14,8 @@ config.json
 *.log
 *.png
 test.py
-test_*
+!tests/
+
 
 # Python
 __pycache__/

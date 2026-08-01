@@ -3,7 +3,15 @@ echo "Đang dọn dẹp thư mục build cũ..."
 rm -rf build
 rm -rf dist
 
+echo "🧪 Running automated codebase integrity tests..."
+python3 tests/test_codebase_integrity.py
+if [ $? -ne 0 ]; then
+    echo "❌ [LỖI GIÁM SÁT CODE] Automated test thất bại! Dừng build để tránh tạo ra bản build lỗi."
+    exit 1
+fi
+
 echo "Đang build BandaiRegister..."
+
 pyinstaller --clean -y RegisterBot.spec
 if [ $? -ne 0 ]; then
     echo "[LỖI] PyInstaller build thất bại!"
