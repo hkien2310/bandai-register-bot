@@ -79,9 +79,16 @@ class XlsxConnection:
 
     def _atomic_save(self, wb, path):
         import os
-        tmp_path = str(path) + ".tmp"
-        wb.save(tmp_path)
-        os.replace(tmp_path, str(path))
+        try:
+            tmp_path = str(path) + ".tmp"
+            wb.save(tmp_path)
+            os.replace(tmp_path, str(path))
+        except Exception as e:
+            try:
+                wb.save(str(path))
+            except Exception as direct_err:
+                log.error(f"❌ LỖI LƯU FILE EXCEL: Không thể lưu file '{path}'. File đang bị mở/khóa bởi Microsoft Excel hoặc ứng dụng khác. Vui lòng TẮT file Excel trước khi chạy! Chi tiết: {direct_err}")
+                raise RuntimeError(f"File Excel đang bị khóa bởi phần mềm khác: {direct_err}")
     """Service đọc/ghi dữ liệu từ file XLSX local. Thread-safe."""
 
     def __init__(self, xlsx_path: str):
@@ -104,6 +111,45 @@ class XlsxConnection:
                 log.warning(f"⚠️ XlsxConnection: File không tồn tại: {self.xlsx_path}")
             else:
                 log.warning("⚠️ XlsxConnection: Chưa cấu hình đường dẫn file XLSX.")
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Internal helpers
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def _get_headers(self, ws):
+        """Lấy list headers từ dòng đầu tiên của sheet."""
+        return [str(cell.value or "").strip() for cell in ws[1]]
+
+    def _col_index(self, headers, col_name):
+        """
+        Tìm index của cột dựa trên header name, xử lý cả aliases.
+        """
+        normalized = [h.lower() for h in headers]
+        col_name_norm = col_name.lower()
+        
+        # Thử tìm trực tiếp
+        if col_name_norm in normalized:
+            return normalized.index(col_name_norm)
+        
+        # Thử tìm theo alias
+        target = COLUMN_ALIASES.get(col_name_norm)
+        if target and target in normalized:
+            return normalized.index(target)
+            
+        raise KeyError(f"Không tìm thấy cột '{col_name}' trong sheet. Headers hiện tại: {headers}")
+
+    def _ensure_sheets(self, wb):
+        """Đảm bảo các sheet cơ bản tồn tại."""
+        required = ["Outlooks", "Gmails", "Iclouds", "Accounts", "Proxies"]
+        for name in required:
+            if name not in wb.sheetnames:
+                wb.create_sheet(name)
+                # Init headers
+                ws = wb[name]
+                if name == "Accounts":
+                    ws.append(ACCOUNTS_HEADERS)
+                elif name == "Proxies":
+                    ws.append(PROXIES_HEADERS)
 
     # ──────────────────────────────────────────────────────────────────────────
     # Public: lifecycle
@@ -261,7 +307,7 @@ class XlsxConnection:
                 return []
 
 
-    def update_email_status(self, email: str, status: str, error_details: str = ""):
+    def update_email_status(self, email: str, status: str, error_details: str = "", extra_data: dict = None):
         """
         Cập nhật cột status và error_details trong sheet active.
         Tìm dòng theo email (hoặc raw pipe string nếu truyền vào).
@@ -284,7 +330,6 @@ class XlsxConnection:
                 status_col = self._col_index(headers, "status")
                 email_col  = self._col_index(headers, "email")
 
-                # Lấy hoặc tạo cột error_details
                 try:
                     err_col = self._col_index(headers, "error_details")
                 except KeyError:
@@ -301,6 +346,7 @@ class XlsxConnection:
                         if error_details:
                             row[err_col].value = error_details
                         break
+
 
                 self._atomic_save(wb, self.xlsx_path)
                 wb.close()
