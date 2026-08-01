@@ -52,8 +52,11 @@ jobs:
         echo "{}" > config.json
 
     - name: Run Codebase Integrity Tests
+      env:
+        PYTHONIOENCODING: "utf-8"
       run: |
         python tests/test_codebase_integrity.py
+
 
     - name: Build EXE with PyInstaller
 

@@ -4,13 +4,18 @@ import os
 # Ensure root directory is on sys.path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Force UTF-8 output encoding for Windows compatibility
+if hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
+
 import ast
 import glob
 import importlib
-
 import json
-import os
-import sys
 import tempfile
 from pathlib import Path
 
@@ -33,26 +38,27 @@ def test_1_import_all_modules():
         "main",
         "gui",
     ]
-    print("🧪 [Test 1/3] Kiểm tra import tất cả các module...")
+    print("[TEST 1/3] Kiem tra import tat ca cac module...")
     for mod in modules:
         importlib.import_module(mod)
-        print(f"   ✓ {mod}")
-    print("✅ Test 1 PASSED: Tất cả module import mượt mà!")
+        print(f"   [OK] {mod}")
+    print("[PASSED] Test 1 PASSED: Tat ca module import muot ma!")
 
 def test_2_ast_variable_scope():
     """Test AST scope in all Python files to detect potential NameError / undefined variables."""
-    print("\n🧪 [Test 2/3] Quét AST tĩnh tất cả các file Python...")
+    print("\n[TEST 2/3] Quet AST tinh tat ca cac file Python...")
     all_files = sorted(glob.glob("src/**/*.py", recursive=True) + ["main.py", "gui.py"])
     for filepath in all_files:
         with open(filepath, "r", encoding="utf-8") as f:
             code = f.read()
         tree = ast.parse(code, filename=filepath)
         assert tree is not None
-    print(f"✅ Test 2 PASSED: Đã quét {len(all_files)} file Python, không có lỗi cấu trúc AST!")
+    print(f"[PASSED] Test 2 PASSED: Da quet {len(all_files)} file Python, khong co loi cau truc AST!")
 
 def test_3_full_runtime_flow():
     """Test full runtime flow (Excel read/write + manual phone reservation/confirmation/release)."""
-    print("\n🧪 [Test 3/3] Chạy giả lập toàn bộ luồng Runtime...")
+    print("\n[TEST 3/3] Chay gia lap toan bo luong Runtime...")
+
     from src import config
     from src.connections.xlsx_connection import XlsxConnection
     from src.core import sms_service
@@ -117,21 +123,22 @@ def test_3_full_runtime_flow():
         sms_service.reset_manual_phone_in_use_flags()
         assert sms_service.get_unused_manual_phone_count() == 1
 
-    print("✅ Test 3 PASSED: Luồng Excel và SĐT thủ công hoạt động hoàn hảo!")
+    print("[PASSED] Test 3 PASSED: Luong Excel va SDT thu cong hoat dong hoan hao!")
 
 if __name__ == "__main__":
     print("===============================================")
-    print("🚀 BẮT ĐẦU KIỂM TRA TỰ ĐỘNG (AUTOMATED TEST)")
+    print("[TEST] BAT DAU KIEM TRA TU DONG (AUTOMATED TEST)")
     print("===============================================")
     try:
         test_1_import_all_modules()
         test_2_ast_variable_scope()
         test_3_full_runtime_flow()
         print("\n===============================================")
-        print("🎉 TẤT CẢ TEST ĐÃ PASS 100%! AN TOÀN ĐỂ BUILD!")
+        print("[SUCCESS] TAT CA TEST DA PASS 100%! AN TOAN DE BUILD!")
         print("===============================================")
     except Exception as e:
-        print(f"\n❌ REGRESSION TEST THẤT BẠI: {e}")
+        print(f"\n[FAIL] REGRESSION TEST THAT BAI: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)
+
