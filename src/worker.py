@@ -532,7 +532,8 @@ class RegistrationWorker:
             result_data["status"] = "SUCCESS"
             # Ghi ngay lập tức vào sheet Accounts & Outlooks khi xác thực SMS hoàn tất
             self.sheets_manager.append_account(result_data)
-            self.sheets_manager.update_email_status(raw_email, "SUCCESS")
+            self.sheets_manager.update_email_status(email, "SUCCESS")
+
 
 
             # Lấy BNID từ portal nếu step 3 không bóc được
