@@ -605,8 +605,9 @@ async def run_step4(page: Page, email: str, password: str, nickname: str, birthd
             log.info("   Order số mới từ API...")
 
         try:
-            order = sms_service.order_phone()
+            order = sms_service.order_phone(email=email)
             raw_phone = order["phone"]
+
             pkey = order["pkey"]
             phone = format_jp_phone(raw_phone)
             if is_manual_list:

@@ -93,7 +93,12 @@ async def main_async():
             sys.exit(1)
 
 
+    if getattr(config, "USE_MANUAL_PHONE_LIST", False):
+        from src.core.sms_service import reset_manual_phone_in_use_flags
+        reset_manual_phone_in_use_flags()
+
     # 5. Vòng lặp chính: Đọc email PENDING từ Sheets và chạy
+
     while True:
         if config.STOP_FLAG:
             log.warning("🛑 Người dùng đã bấm Stop, dừng vòng lặp chính.")

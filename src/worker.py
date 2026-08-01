@@ -411,12 +411,13 @@ class RegistrationWorker:
                             if config.STOP_FLAG: break
                             time.sleep(0.5)
 
-            # MỞ KHÓA proxy sau khi xử lý xong account (dù thành công hay thất bại)
-            if proxy_idx >= 0:
-                self.proxy_pool.release_proxy(proxy_idx)
+            if result_data.get("status") != "SUCCESS" and result_data.get("phone"):
+                if getattr(config, "USE_MANUAL_PHONE_LIST", False):
+                    sms_service.release_manual_phone(result_data["phone"])
 
             # Kết quả cuối cùng — luôn ghi vào Accounts (upsert)
             self.sheets_manager.update_email_status(raw_email, result_data["status"], result_data.get("error_details", ""))
+
             self.sheets_manager.append_account(result_data)
             self._finish_task(result_data["status"])
             log.info(f"Kết thúc xử lý tài khoản {email}\n" + "-"*50)
@@ -530,9 +531,13 @@ class RegistrationWorker:
             # HOÀN THÀNH — Đánh dấu SUCCESS
             # ═══════════════════════════════════════════════
             result_data["status"] = "SUCCESS"
+            # Nếu chạy mode SĐT thủ công, chỉ khi hoàn tất OTP thành công mới đánh dấu SĐT là is_used = True
+            if pkey == "MANUAL" or getattr(config, "USE_MANUAL_PHONE_LIST", False):
+                sms_service.confirm_manual_phone(phone)
             # Ghi ngay lập tức vào sheet Accounts & Outlooks khi xác thực SMS hoàn tất
             self.sheets_manager.append_account(result_data)
             self.sheets_manager.update_email_status(email, "SUCCESS")
+
 
 
 

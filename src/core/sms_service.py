@@ -16,9 +16,29 @@ _apikey_lock = threading.Lock()
 _pre_fetched_lock = threading.Lock()
 _manual_numbers_lock = threading.Lock()
 
+def reset_manual_phone_in_use_flags():
+    """Xóa tất cả cờ in_use_by tạm thời khi khởi động bot."""
+    manual_path = config.DATA_DIR / "manual_phone_numbers.json"
+    with _manual_numbers_lock:
+        if not manual_path.exists(): return
+        try:
+            with open(manual_path, "r", encoding="utf-8") as f:
+                numbers = json.load(f)
+            if isinstance(numbers, list):
+                updated = False
+                for item in numbers:
+                    if isinstance(item, dict) and item.get("in_use_by"):
+                        item["in_use_by"] = None
+                        updated = True
+                if updated:
+                    with open(manual_path, "w", encoding="utf-8") as f:
+                        json.dump(numbers, f, indent=4, ensure_ascii=False)
+        except Exception:
+            pass
+
 def get_unused_manual_phone_count() -> int:
     """
-    Trả về số lượng SĐT thủ công chưa sử dụng.
+    Trả về số lượng SĐT thủ công chưa hoàn thành OTP (is_used = False và chưa bị giữ).
     """
     manual_path = config.DATA_DIR / "manual_phone_numbers.json"
     with _manual_numbers_lock:
@@ -28,14 +48,22 @@ def get_unused_manual_phone_count() -> int:
             with open(manual_path, "r", encoding="utf-8") as f:
                 numbers = json.load(f)
             if isinstance(numbers, list):
-                return sum(1 for n in numbers if (isinstance(n, dict) and not n.get("is_used", False)) or isinstance(n, str))
+                count = 0
+                for item in numbers:
+                    if isinstance(item, str):
+                        count += 1
+                    elif isinstance(item, dict):
+                        if not item.get("is_used", False) and not item.get("in_use_by"):
+                            count += 1
+                return count
         except Exception:
             pass
         return 0
 
-def get_manual_phone() -> dict:
+def get_manual_phone(email: str = "") -> dict:
     """
-    Lấy số điện thoại chưa sử dụng tiếp theo từ file data/manual_phone_numbers.json.
+    Tạm giữ số điện thoại thủ công cho worker (đặt in_use_by = email).
+    Chỉ khi nhập OTP thành công mới gọi confirm_manual_phone để đánh dấu is_used = True.
     """
     manual_path = config.DATA_DIR / "manual_phone_numbers.json"
     with _manual_numbers_lock:
@@ -45,36 +73,42 @@ def get_manual_phone() -> dict:
 
         try:
             with open(manual_path, "r", encoding="utf-8") as f:
-                numbers = json.load(f)
+                raw_numbers = json.load(f)
         except Exception as e:
             config.STOP_FLAG = True
             raise RuntimeError(f"Không thể đọc file manual_phone_numbers.json: {e}")
 
-        if not isinstance(numbers, list) or len(numbers) == 0:
+        if not isinstance(raw_numbers, list) or len(raw_numbers) == 0:
             config.STOP_FLAG = True
             raise RuntimeError("Danh sách số điện thoại thủ công đang trống!")
 
+        # Chuẩn hóa về list[dict]
+        numbers = []
+        for item in raw_numbers:
+            if isinstance(item, str):
+                numbers.append({"phone": item, "is_used": False, "in_use_by": None})
+            elif isinstance(item, dict):
+                numbers.append(item)
+
         valid_num = None
         for item in numbers:
-            if isinstance(item, str):
-                item = {"phone": item, "is_used": False}
-            if isinstance(item, dict) and not item.get("is_used", False):
-                item["is_used"] = True
+            if not item.get("is_used", False) and not item.get("in_use_by"):
+                item["in_use_by"] = email or "active_worker"
                 valid_num = item
                 break
 
-        unused_count = sum(1 for n in numbers if isinstance(n, dict) and not n.get("is_used", False))
+        unused_count = sum(1 for n in numbers if not n.get("is_used", False) and not n.get("in_use_by"))
 
         with open(manual_path, "w", encoding="utf-8") as f:
             json.dump(numbers, f, indent=4, ensure_ascii=False)
 
         if not valid_num:
             config.STOP_FLAG = True
-            log.warning("🛑 Hết số điện thoại thủ công! Kích hoạt STOP_FLAG để dừng toàn bộ tiến trình.")
-            raise RuntimeError("❌ Hết số điện thoại thủ công chưa sử dụng trong danh sách! Dừng toàn bộ chương trình.")
+            log.warning("🛑 Hết số điện thoại thủ công khả dụng! Kích hoạt STOP_FLAG để dừng toàn bộ tiến trình.")
+            raise RuntimeError("❌ Hết số điện thoại thủ công khả dụng trong danh sách! Dừng bot.")
 
-        phone_str = valid_num.get("phone", "").strip() if isinstance(valid_num, dict) else str(valid_num).strip()
-        log.info(f"📱 [SĐT Thủ Công] Sử dụng số: {phone_str} (còn {unused_count} số chưa dùng trong danh sách)")
+        phone_str = valid_num.get("phone", "").strip()
+        log.info(f"📱 [SĐT Thủ Công] Giữ số: {phone_str} cho {email or 'Worker'} (còn rảnh {unused_count} số chưa dùng)")
         return {
             "phone": phone_str,
             "pkey": "MANUAL",
@@ -82,6 +116,67 @@ def get_manual_phone() -> dict:
             "balance": 0,
             "expires_at": 0,
         }
+
+def confirm_manual_phone(phone: str):
+    """
+    Xác nhận OTP thành công -> Đánh dấu SĐT là is_used = True (hoàn tất hẳn).
+    """
+    if not phone: return
+    manual_path = config.DATA_DIR / "manual_phone_numbers.json"
+    with _manual_numbers_lock:
+        if not manual_path.exists(): return
+        try:
+            with open(manual_path, "r", encoding="utf-8") as f:
+                numbers = json.load(f)
+            if not isinstance(numbers, list): return
+
+            clean_p = format_jp_phone(phone).replace("-", "").replace(" ", "")
+            updated = False
+            for item in numbers:
+                if isinstance(item, dict):
+                    item_p = format_jp_phone(item.get("phone", "")).replace("-", "").replace(" ", "")
+                    if item_p == clean_p or item.get("phone") == phone:
+                        item["is_used"] = True
+                        item["in_use_by"] = None
+                        updated = True
+                        break
+            if updated:
+                with open(manual_path, "w", encoding="utf-8") as f:
+                    json.dump(numbers, f, indent=4, ensure_ascii=False)
+                log.info(f"📱 [SĐT Thủ Công] ✅ OTP Thành công! Đã đánh dấu SĐT {phone} là ĐÃ HOÀN THÀNH (is_used = True)")
+        except Exception as e:
+            log.warning(f"⚠️ Lỗi khi confirm_manual_phone ({phone}): {e}")
+
+def release_manual_phone(phone: str):
+    """
+    Nhả SĐT về trạng thái rảnh (in_use_by = None) nếu chưa hoàn thành OTP.
+    """
+    if not phone: return
+    manual_path = config.DATA_DIR / "manual_phone_numbers.json"
+    with _manual_numbers_lock:
+        if not manual_path.exists(): return
+        try:
+            with open(manual_path, "r", encoding="utf-8") as f:
+                numbers = json.load(f)
+            if not isinstance(numbers, list): return
+
+            clean_p = format_jp_phone(phone).replace("-", "").replace(" ", "")
+            updated = False
+            for item in numbers:
+                if isinstance(item, dict):
+                    item_p = format_jp_phone(item.get("phone", "")).replace("-", "").replace(" ", "")
+                    if item_p == clean_p or item.get("phone") == phone:
+                        if not item.get("is_used", False):
+                            item["in_use_by"] = None
+                            updated = True
+                        break
+            if updated:
+                with open(manual_path, "w", encoding="utf-8") as f:
+                    json.dump(numbers, f, indent=4, ensure_ascii=False)
+                log.info(f"📱 [SĐT Thủ Công] 🔄 Đã nhả số {phone} về danh sách rảnh do chưa hoàn tất OTP")
+        except Exception as e:
+            log.warning(f"⚠️ Lỗi khi release_manual_phone ({phone}): {e}")
+
 
 
 
@@ -223,12 +318,14 @@ def order_phone(
     service_id: str | None = None,
     server: str | None = None,
     force_api: bool = False,
+    email: str = "",
 ) -> dict:
     """
     Order phone number. Poll until phone number is ready.
     """
     if getattr(config, "USE_MANUAL_PHONE_LIST", False) and not force_api:
-        return get_manual_phone()
+        return get_manual_phone(email=email)
+
 
     if getattr(config, "USE_PRE_FETCHED_NUMBERS", False) and not force_api:
         pre_fetched_path = config.DATA_DIR / "pre_fetched_numbers.json"
@@ -407,10 +504,13 @@ def poll_sms_otp(
     log.warning(f"⏰ Timeout {timeout}s — không nhận được SMS OTP")
     return None
 
-def cancel(pkey: str) -> bool:
+def cancel(pkey: str, phone: str = "") -> bool:
     """Cancel order and refund if no OTP received."""
     if pkey in ("MANUAL", ""):
+        if phone:
+            release_manual_phone(phone)
         return True
+
     try:
         apikey = _get_apikey()
 
