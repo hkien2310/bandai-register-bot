@@ -3,7 +3,9 @@ import traceback
 import src.config as config
 import csv
 from queue import Queue, Empty
+import src.core.sms_service as sms_service
 from src.core.browser import BrowserInstance
+
 from src.flows.step1_connect import run_step1
 from src.flows.step2_bnid_click import run_step2
 from src.flows.step3_bnid_register import run_step3
