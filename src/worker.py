@@ -437,7 +437,10 @@ class RegistrationWorker:
 
     async def _process_account_async(self, email, password, nickname, birthday, prefecture, proxy, result_data, has_bnid_local, email_password: str = "", refresh_token: str = "", client_id: str = "", otp_email: str = "", otp_pass: str = "", provider: str = ""):
         """Chạy các bước đăng ký tuần tự trong cùng một event loop."""
+        phone = ""
+        pkey = ""
         browser = BrowserInstance(worker_id=self.worker_id, proxy=proxy)
+
         try:
             page = await browser.start()
 

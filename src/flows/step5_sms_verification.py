@@ -139,7 +139,8 @@ async def run_step5(page: Page, phone: str, pkey: str) -> str:
                 log.warning(f"   Hết timeout ({config.SMS_OTP_TIMEOUT}s) chưa có SMS OTP.")
                 # Hủy số ngay lập tức trên API để được refund tiền
                 log.info(f"   Hủy số {phone} trên API do hết hạn/không có OTP...")
-                sms_service.cancel(pkey)
+                sms_service.cancel(pkey, phone=phone)
+
                 
                 # Tìm và click link đổi số để quay lại trang điền form
                 log.info("   Đang click '携帯電話番号の変更はこちら' để quay lại form và đổi số...")
