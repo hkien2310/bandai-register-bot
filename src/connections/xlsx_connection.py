@@ -65,9 +65,35 @@ def repair_xlsx_crc(corrupted_file_path: str, output_file_path: str):
                     zout.writestr(new_info, content)
 
 
+def cleanup_empty_rows(ws):
+    """
+    Xóa bỏ tất cả các dòng trống vô nghĩa (do Microsoft Excel tự khởi tạo format)
+    để tránh bị rỗng hàng trăm dòng giữa các dữ liệu.
+    """
+    if ws.max_row < 2:
+        return 0
+    empty_rows = []
+    max_c = max(ws.max_column, 10)
+    for r in range(2, ws.max_row + 1):
+        is_empty = True
+        for c in range(1, max_c + 1):
+            val = ws.cell(row=r, column=c).value
+            if val is not None and str(val).strip() != "":
+                is_empty = False
+                break
+        if is_empty:
+            empty_rows.append(r)
+    if empty_rows:
+        for r in reversed(empty_rows):
+            ws.delete_rows(r)
+        log.info(f"🧹 [Tự động Dọn Dẹp] Đã xóa {len(empty_rows)} dòng trống thừa trong sheet '{ws.title}'.")
+    return len(empty_rows)
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Header definitions (single source of truth for all output columns)
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 OUTLOOKS_HEADERS = ["email", "email_password", "dob", "prefecture", "nickname", "status", "error_details"]
 CATCHALL_HEADERS = ["email", "email_password", "otp_email", "otp_pass", "dob", "prefecture", "nickname", "status", "error_details"]
@@ -248,7 +274,7 @@ class XlsxConnection:
         raise KeyError(f"Không tìm thấy cột '{col_name}' trong sheet. Headers hiện tại: {headers}")
 
     def _ensure_sheets(self, wb):
-        """Đảm bảo các sheet cơ bản tồn tại."""
+        """Đảm bảo các sheet cơ bản tồn tại và dọn dẹp các dòng trống thừa."""
         required = ["Outlooks", "Gmails", "Iclouds", "Accounts", "Proxies"]
         for name in required:
             if name not in wb.sheetnames:
@@ -259,6 +285,11 @@ class XlsxConnection:
                     ws.append(ACCOUNTS_HEADERS)
                 elif name == "Proxies":
                     ws.append(PROXIES_HEADERS)
+
+        # Tự động dọn dẹp dòng trống thừa ở tất cả các sheet khi bot khởi động
+        for sname in wb.sheetnames:
+            cleanup_empty_rows(wb[sname])
+
 
     # ──────────────────────────────────────────────────────────────────────────
     # Public: lifecycle
@@ -525,6 +556,9 @@ class XlsxConnection:
                         ws.cell(row=1, column=new_col_num, value=col_name)
                         sheet_headers.append(col_name)
 
+                # Tự động dọn dẹp các dòng trống bị khởi tạo format thừa trước khi ghi
+                cleanup_empty_rows(ws)
+
                 # col_map: ten cot -> so cot 1-indexed
                 col_map = {h: idx + 1 for idx, h in enumerate(sheet_headers)}
                 email_col_num = col_map.get("email", 1)
@@ -537,6 +571,7 @@ class XlsxConnection:
                     if cell_val == search_email:
                         target_row_num = row[0].row
                         break
+
 
 
                 if target_row_num is not None:
