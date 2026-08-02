@@ -25,6 +25,46 @@ from src import config
 
 log = get_logger("xlsx_connection")
 
+def repair_xlsx_crc(corrupted_file_path: str, output_file_path: str):
+    """
+    Tự động sửa lỗi Bad CRC-32 trong file XLSX Zip archive.
+    Tái tạo lại các file XML bên trong với checksum CRC32 hợp lệ.
+    """
+    import zipfile
+    import zlib
+    with zipfile.ZipFile(corrupted_file_path, 'r') as zin:
+        with zipfile.ZipFile(output_file_path, 'w', compression=zipfile.ZIP_DEFLATED) as zout:
+            for item in zin.infolist():
+                content = None
+                try:
+                    fp = zin.open(item)
+                    if hasattr(fp, '_expected_crc'):
+                        fp._expected_crc = None
+                    content = fp.read()
+                except Exception:
+                    try:
+                        zinfo = zin.getinfo(item.filename)
+                        with open(corrupted_file_path, 'rb') as f:
+                            f.seek(zinfo.header_offset)
+                            header = f.read(30)
+                            fname_len = int.from_bytes(header[26:28], 'little')
+                            extra_len = int.from_bytes(header[28:30], 'little')
+                            f.seek(zinfo.header_offset + 30 + fname_len + extra_len)
+                            compressed_data = f.read(zinfo.compress_size)
+                            if zinfo.compress_type == zipfile.ZIP_DEFLATED:
+                                content = zlib.decompress(compressed_data, -15)
+                            else:
+                                content = compressed_data
+                    except Exception as ex:
+                        log.warning(f"Không thể đọc file {item.filename} trong archive: {ex}")
+                        continue
+
+                if content is not None:
+                    new_info = zipfile.ZipInfo(item.filename, item.date_time)
+                    new_info.compress_type = zipfile.ZIP_DEFLATED
+                    zout.writestr(new_info, content)
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Header definitions (single source of truth for all output columns)
 # ──────────────────────────────────────────────────────────────────────────────
@@ -91,6 +131,43 @@ class XlsxConnection:
                 raise RuntimeError(f"File Excel đang bị khóa bởi phần mềm khác: {direct_err}")
     """Service đọc/ghi dữ liệu từ file XLSX local. Thread-safe."""
 
+    def _load_workbook(self, read_only: bool = False):
+        """Mở workbook với cơ chế tự động khôi phục nếu file bị Bad CRC-32 hoặc hỏng cấu trúc Zip."""
+        if not self.xlsx_path:
+            raise RuntimeError("Chưa cấu hình đường dẫn file XLSX.")
+        path_str = str(self.xlsx_path)
+        try:
+            if read_only:
+                return openpyxl.load_workbook(path_str, read_only=True)
+            return openpyxl.load_workbook(path_str)
+        except Exception as e:
+            err_msg = str(e)
+            if "Bad CRC-32" in err_msg or "BadZipFile" in err_msg or "not a zip file" in err_msg.lower() or "zipfile" in err_msg.lower():
+                log.error(f"❌ PHÁT HIỆN FILE EXCEL BỊ HỎNG CẤU TRÚC (Bad CRC-32): {path_str} ({e})")
+                log.warning("🔄 Đang tự động sửa và khôi phục dữ liệu từ file Excel bị hỏng...")
+
+                try:
+                    import shutil, time
+                    backup_name = f"{self.xlsx_path.stem}_CORRUPTED_{int(time.time())}{self.xlsx_path.suffix}"
+                    backup_path = self.xlsx_path.parent / backup_name
+                    shutil.copy2(self.xlsx_path, backup_path)
+                    log.info(f"📦 Đã tạo bản sao lưu file bị hỏng tại: {backup_path}")
+                except Exception as b_err:
+                    log.warning(f"Không thể sao lưu file hỏng: {b_err}")
+
+                try:
+                    repaired_tmp = str(self.xlsx_path) + ".repaired"
+                    repair_xlsx_crc(path_str, repaired_tmp)
+                    import os
+                    os.replace(repaired_tmp, path_str)
+                    log.info(f"✅ ĐÃ KHÔI PHỤC THÀNH CÔNG FILE EXCEL BỊ HỎNG CRC: {path_str}")
+                    if read_only:
+                        return openpyxl.load_workbook(path_str, read_only=True)
+                    return openpyxl.load_workbook(path_str)
+                except Exception as repair_err:
+                    log.error(f"Không thể sửa tự động file Excel: {repair_err}")
+            raise e
+
     def __init__(self, xlsx_path: str):
         self.xlsx_path = Path(xlsx_path) if xlsx_path else None
         self._lock = threading.Lock()
@@ -98,7 +175,7 @@ class XlsxConnection:
 
         if self.xlsx_path and self.xlsx_path.exists():
             try:
-                wb = openpyxl.load_workbook(str(self.xlsx_path))
+                wb = self._load_workbook()
                 self._ensure_sheets(wb)
                 self._atomic_save(wb, self.xlsx_path)
                 wb.close()
@@ -106,6 +183,7 @@ class XlsxConnection:
                 log.info(f"✅ XlsxConnection: Kết nối thành công → {self.xlsx_path}")
             except Exception as e:
                 log.error(f"❌ XlsxConnection: Không thể mở file XLSX: {e}")
+
         else:
             if self.xlsx_path:
                 log.warning(f"⚠️ XlsxConnection: File không tồn tại: {self.xlsx_path}")
@@ -167,7 +245,8 @@ class XlsxConnection:
         """
         with self._lock:
             try:
-                wb = openpyxl.load_workbook(str(self.xlsx_path))
+                wb = self._load_workbook()
+
 
                 # Đọc tập hợp email đã có BNID từ sheet Accounts (check cột bnid_user_code)
                 emails_with_bnid: set = set()
@@ -250,7 +329,8 @@ class XlsxConnection:
         """
         with self._lock:
             try:
-                wb = openpyxl.load_workbook(str(self.xlsx_path))
+                wb = self._load_workbook()
+
                 active_sheet_name = getattr(config, "ACTIVE_SHEET", "Outlooks")
                 if active_sheet_name not in wb.sheetnames:
                     active_sheet_name = "Outlooks" if "Outlooks" in wb.sheetnames else "Mails"
@@ -317,7 +397,8 @@ class XlsxConnection:
             return
         with self._lock:
             try:
-                wb = openpyxl.load_workbook(str(self.xlsx_path))
+                wb = self._load_workbook()
+
                 active_sheet_name = getattr(config, "ACTIVE_SHEET", "Outlooks")
                 if active_sheet_name not in wb.sheetnames:
                     active_sheet_name = "Outlooks" if "Outlooks" in wb.sheetnames else "Mails"
@@ -381,7 +462,8 @@ class XlsxConnection:
 
         with self._lock:
             try:
-                wb = openpyxl.load_workbook(str(self.xlsx_path))
+                wb = self._load_workbook()
+
                 
                 # Tìm sheet Accounts (case-insensitive hoặc tự tạo)
                 target_sheet_name = None
@@ -458,7 +540,8 @@ class XlsxConnection:
         email = str(email or "").strip()
         with self._lock:
             try:
-                wb = openpyxl.load_workbook(str(self.xlsx_path), read_only=True)
+                wb = self._load_workbook(read_only=True)
+
                 ws = wb["Accounts"]
                 headers = self._get_headers(ws)
                 email_col  = self._col_index(headers, "email")
@@ -486,7 +569,8 @@ class XlsxConnection:
         """Đọc danh sách proxy active từ sheet Proxies. Trả về list[str]."""
         with self._lock:
             try:
-                wb = openpyxl.load_workbook(str(self.xlsx_path), read_only=True)
+                wb = self._load_workbook(read_only=True)
+
                 if "Proxies" not in wb.sheetnames:
                     wb.close()
                     return []
@@ -518,7 +602,8 @@ class XlsxConnection:
         """
         with self._lock:
             try:
-                wb = openpyxl.load_workbook(str(self.xlsx_path), read_only=True)
+                wb = self._load_workbook(read_only=True)
+
                 ws = wb["Accounts"]
                 headers = self._get_headers(ws)
                 proxy_col  = self._col_index(headers, "proxy_used")
