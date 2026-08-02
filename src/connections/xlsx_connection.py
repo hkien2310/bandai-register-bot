@@ -476,9 +476,12 @@ class XlsxConnection:
         Upsert kết quả vào sheet Accounts theo email.
         Dung ws.cell(row, column) de dam bao dung cot, khong bi lech.
         """
-        email = str(data.get("email", "") or "").strip()
-        if not email:
+        email_raw = str(data.get("email", "") or "").strip()
+        if not email_raw:
             return
+
+        plain_email = email_raw.split("|")[0].strip()
+        data["email"] = plain_email
 
         status = _normalize_status(data.get("status", ""))
         # CHỈ CHO PHÉP ghi vào Accounts sheet nếu SUCCESS hoặc HAS_BNID
@@ -526,13 +529,15 @@ class XlsxConnection:
                 col_map = {h: idx + 1 for idx, h in enumerate(sheet_headers)}
                 email_col_num = col_map.get("email", 1)
 
-                # Tìm dòng có email trùng
+                # Tìm dòng có email trùng (case-insensitive & hỗ trợ dạng pipe)
                 target_row_num = None
+                search_email = plain_email.lower()
                 for row in ws.iter_rows(min_row=2):
-                    cell_val = str(ws.cell(row=row[0].row, column=email_col_num).value or "").strip()
-                    if cell_val == email:
+                    cell_val = str(ws.cell(row=row[0].row, column=email_col_num).value or "").strip().split("|")[0].strip().lower()
+                    if cell_val == search_email:
                         target_row_num = row[0].row
                         break
+
 
                 if target_row_num is not None:
                     # UPDATE: dùng ws.cell(row, col) để ghi đúng vị trí
@@ -544,21 +549,22 @@ class XlsxConnection:
                                 ws.cell(row=target_row_num, column=col_num, value=val)
                             elif existing is None:
                                 ws.cell(row=target_row_num, column=col_num, value="")
-                    log.info(f"📊 [Sheet Accounts] Đã cập nhật: {email} → Status={data['status']}")
+                    log.info(f"📊 [Sheet Accounts] Đã cập nhật: {plain_email} → Status={data['status']}")
                 else:
                     # INSERT: dùng ws.cell(row, col) để ghi mới
                     next_row = ws.max_row + 1
                     for key, val in data.items():
                         if key in col_map:
                             ws.cell(row=next_row, column=col_map[key], value=val or "")
-                    log.info(f"📊 [Sheet Accounts] Đã thêm mới: {email} → Status={data['status']}")
+                    log.info(f"📊 [Sheet Accounts] Đã thêm mới: {plain_email} → Status={data['status']}")
 
 
 
                 self._atomic_save(wb, self.xlsx_path)
                 wb.close()
             except Exception as e:
-                log.error(f"❌ [LỖI GHI SHEET ACCOUNTS] Không thể ghi email {email} vào file Excel: {e}", exc_info=True)
+                log.error(f"❌ [LỖI GHI SHEET ACCOUNTS] Không thể ghi email {plain_email} vào file Excel: {e}", exc_info=True)
+
 
 
 
