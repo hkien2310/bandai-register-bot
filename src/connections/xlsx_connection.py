@@ -118,18 +118,47 @@ def _normalize_status(status: str) -> str:
 class XlsxConnection:
 
     def _atomic_save(self, wb, path):
-        import os
+        import os, time
+        tmp_path = str(path) + f".tmp_{int(time.time() * 1000)}"
         try:
-            tmp_path = str(path) + ".tmp"
             wb.save(tmp_path)
+            # Kiểm tra kiểm định (Validation): Đảm bảo file .tmp ghi ra hoàn toàn hợp lệ 100% trước khi đổi tên
+            test_wb = openpyxl.load_workbook(tmp_path, read_only=True)
+            test_wb.close()
+            # Thực thi lệnh đổi tên Atomic OS operation (an toàn tuyệt đối)
             os.replace(tmp_path, str(path))
         except Exception as e:
+            if os.path.exists(tmp_path):
+                try: os.remove(tmp_path)
+                except Exception: pass
             try:
                 wb.save(str(path))
             except Exception as direct_err:
                 log.error(f"❌ LỖI LƯU FILE EXCEL: Không thể lưu file '{path}'. File đang bị mở/khóa bởi Microsoft Excel hoặc ứng dụng khác. Vui lòng TẮT file Excel trước khi chạy! Chi tiết: {direct_err}")
                 raise RuntimeError(f"File Excel đang bị khóa bởi phần mềm khác: {direct_err}")
-    """Service đọc/ghi dữ liệu từ file XLSX local. Thread-safe."""
+
+    def _create_session_backup(self):
+        """Tự động tạo bản sao lưu an toàn khi khởi động bot."""
+        if not self.xlsx_path or not self.xlsx_path.exists():
+            return
+        try:
+            import shutil, os
+            backup_dir = self.xlsx_path.parent / "backups"
+            backup_dir.mkdir(exist_ok=True)
+            
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_file = backup_dir / f"{self.xlsx_path.stem}_backup_{timestamp}{self.xlsx_path.suffix}"
+            shutil.copy2(self.xlsx_path, backup_file)
+            log.info(f"🛡️ [Cơ chế An toàn] Đã tự động tạo bản sao lưu bảo vệ dữ liệu tại: {backup_file}")
+            
+            # Xóa các bản backup cũ, chỉ giữ lại 10 file gần nhất
+            backups = sorted(backup_dir.glob(f"{self.xlsx_path.stem}_backup_*"), key=os.path.getmtime)
+            if len(backups) > 10:
+                for b in backups[:-10]:
+                    try: os.remove(b)
+                    except Exception: pass
+        except Exception as e:
+            log.warning(f"Không thể tạo bản sao lưu an toàn: {e}")
 
     def _load_workbook(self, read_only: bool = False):
         """Mở workbook với cơ chế tự động khôi phục nếu file bị Bad CRC-32 hoặc hỏng cấu trúc Zip."""
@@ -175,6 +204,7 @@ class XlsxConnection:
 
         if self.xlsx_path and self.xlsx_path.exists():
             try:
+                self._create_session_backup()
                 wb = self._load_workbook()
                 self._ensure_sheets(wb)
                 self._atomic_save(wb, self.xlsx_path)
@@ -183,6 +213,7 @@ class XlsxConnection:
                 log.info(f"✅ XlsxConnection: Kết nối thành công → {self.xlsx_path}")
             except Exception as e:
                 log.error(f"❌ XlsxConnection: Không thể mở file XLSX: {e}")
+
 
         else:
             if self.xlsx_path:
