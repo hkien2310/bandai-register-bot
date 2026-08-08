@@ -126,17 +126,32 @@ def get_bandai_namco_otp_imap(
                                 return otp_code
             
             mail.logout()
-        except imaplib.IMAP4.error as auth_err:
             err_str = str(auth_err)
-            if "AUTHENTICATIONFAILED" in err_str or "Invalid credentials" in err_str:
-                log.error(
-                    f"❌ [{target_email}] Lỗi đăng nhập IMAP ({otp_email}): Sai mật khẩu hoặc chưa tạo Mật khẩu ứng dụng (App Password)!\n"
-                    f"👉 HƯỚNG DẪN KHẮC PHỤC DÀNH CHO GMAIL:\n"
-                    f"   1. Truy cập tài khoản Google '{otp_email}' và bật 'Xác minh 2 bước' (2-Step Verification).\n"
-                    f"   2. Vào đường dẫn: https://myaccount.google.com/apppasswords để tạo 'Mật khẩu ứng dụng' (16 ký tự).\n"
-                    f"   3. Điền mật khẩu 16 ký tự này vào file XLSX (cột email_password) thay cho mật khẩu Gmail thông thường."
-                )
+            if "AUTHENTICATIONFAILED" in err_str or "Invalid credentials" in err_str or "LOGIN failed" in err_str:
+                domain = str(otp_email).split("@")[-1].lower() if "@" in str(otp_email) else ""
+                if "icloud.com" in domain or "me.com" in domain or "mac.com" in domain:
+                    log.error(
+                        f"❌ [{target_email}] Lỗi đăng nhập IMAP iCloud ({otp_email}): Sai mật khẩu hoặc chưa tạo Mật khẩu dành cho ứng dụng (App-Specific Password)!\n"
+                        f"👉 HƯỚNG DẪN KHẮC PHỤC DÀNH CHO iCLOUD MAIL:\n"
+                        f"   1. Truy cập tài khoản Apple ID '{otp_email}' tại: https://appleid.apple.com\n"
+                        f"   2. Vào mục 'Sign-In and Security' (Đăng nhập và Bảo mật) ➔ Chọn 'App-Specific Passwords' (Mật khẩu dành cho ứng dụng).\n"
+                        f"   3. Tạo mật khẩu ứng dụng mới (dạng xxxx-xxxx-xxxx-xxxx).\n"
+                        f"   4. Điền mật khẩu 16 ký tự này vào file XLSX (cột otp_pass hoặc email_password) thay cho mật khẩu iCloud thông thường."
+                    )
+                elif "gmail.com" in domain or "googlemail.com" in domain:
+                    log.error(
+                        f"❌ [{target_email}] Lỗi đăng nhập IMAP Gmail ({otp_email}): Sai mật khẩu hoặc chưa tạo Mật khẩu ứng dụng (App Password)!\n"
+                        f"👉 HƯỚNG DẪN KHẮC PHỤC DÀNH CHO GMAIL:\n"
+                        f"   1. Truy cập tài khoản Google '{otp_email}' và bật 'Xác minh 2 bước' (2-Step Verification).\n"
+                        f"   2. Vào đường dẫn: https://myaccount.google.com/apppasswords để tạo 'Mật khẩu ứng dụng' (16 ký tự).\n"
+                        f"   3. Điền mật khẩu 16 ký tự này vào file XLSX (cột otp_pass hoặc email_password) thay cho mật khẩu Gmail thông thường."
+                    )
+                else:
+                    log.error(
+                        f"❌ [{target_email}] Lỗi đăng nhập IMAP ({otp_email}): Mật khẩu hoặc tài khoản IMAP không chính xác! Vui lòng kiểm tra lại cột otp_email và otp_pass trong file XLSX."
+                    )
                 return ""
+
             else:
                 log.error(f"[{target_email}] Lỗi IMAP Auth: {auth_err}")
         except Exception as e:
