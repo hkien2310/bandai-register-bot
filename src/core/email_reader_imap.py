@@ -124,17 +124,17 @@ def get_bandai_namco_otp_imap(
                             except:
                                 pass
 
-                        if body:
-                            # Đảm bảo target_email nằm trong TO address hoặc body (tránh alias khác)
-                            if target_email in to_address or target_email in body.lower():
-                                match = re.search(r'([0-9]{6})', body)
-                                if match:
-                                    otp_code = match.group(1)
-                                    log.info(f"[{target_email}] ✅ Đã tìm thấy mã OTP: {otp_code}")
+                        if body and (target_email in to_address or target_email in body.lower()):
+                            # Chỉ match mã 6 chữ số độc lập (\b\d{6}\b) để tránh lấy nhầm số từ link/ngày tháng
+                            match = re.search(r'\b([0-9]{6})\b', body)
+                            if match:
+                                otp_code = match.group(1)
+                                log.info(f"[{target_email}] ✅ Đã tìm thấy mã OTP: {otp_code}")
+                                try:
                                     mail.logout()
-                                    return otp_code
-                            mail.logout()
-                            return otp_code
+                                except Exception:
+                                    pass
+                                return otp_code
             
             mail.logout()
         except imaplib.IMAP4.error as auth_err:
