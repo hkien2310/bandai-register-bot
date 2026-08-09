@@ -68,16 +68,15 @@ def get_bandai_namco_otp_imap(
     while time.time() - start_time < timeout:
 
         try:
-            # 1. Kết nối IMAP (Sử dụng Semaphore để giới hạn tối đa 3 kết nối song song cùng lúc)
+            # 1. Kết nối IMAP (Semaphore giới hạn kết nối đồng thời)
+            log.info(f"[{target_email}] ⏳ Đang chờ kết nối IMAP ({imap_server})... (Đã chờ {int(time.time()-start_time)}s/{timeout}s)")
             with sem:
+                log.info(f"[{target_email}] 🔗 Đã vào IMAP slot — Đang đăng nhập {otp_email}...")
                 mail = imaplib.IMAP4_SSL(imap_server)
                 mail.login(otp_email, otp_pass)
                 mail.select("inbox")
-
-            
-            # 2. Tìm kiếm email từ Banapassport
-            # Lưu ý: Tìm theo FROM sẽ nhanh hơn duyệt toàn bộ
-            status, messages = mail.search(None, '(FROM "noreply@id.banapassport.net")')
+                # 2. Tìm kiếm trong cùng semaphore slot để tránh logout giữa chừng
+                status, messages = mail.search(None, '(FROM "noreply@id.banapassport.net")')
             
             if status == "OK" and messages[0]:
                 msg_nums = messages[0].split()

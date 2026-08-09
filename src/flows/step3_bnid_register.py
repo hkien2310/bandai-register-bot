@@ -24,6 +24,14 @@ async def handle_email_otp(page: Page, email: str, email_password: str, since_ts
         pass
     await page.wait_for_timeout(3000) # Đợi thêm 3s cho chắc chắn Bandai đã gửi mail đi
 
+    # Kiểm tra Bandai có báo "đã gửi rồi, chờ 10 phút" không (account chạy lại sau lần fail trước)
+    try:
+        page_text = await page.evaluate("() => document.body ? document.body.innerText : ''")
+        if "We've already sent an email" in page_text or "already sent" in page_text.lower():
+            log.warning(f"   [Màn hình OTP] ⚠️ Bandai Namco báo đã gửi email OTP từ trước rồi (chạy lại sau lần fail). Sẽ tìm OTP cũ trong hòm thư (nhìn lui 10 phút)...")
+    except Exception:
+        pass
+
     log.info("   [Màn hình OTP] Đang thực hiện lấy OTP...")
     email_otp = await get_bandai_namco_otp(
         context=page.context,
