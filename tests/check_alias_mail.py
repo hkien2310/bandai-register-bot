@@ -17,8 +17,9 @@ def check_alias(target_alias: str):
         mail.login(OTP_EMAIL, OTP_PASS)
         mail.select("inbox")
 
-        # Tìm 20 mail mới nhất từ Bandai Namco
-        status, messages = mail.search(None, '(FROM "noreply@id.banapassport.net")')
+        import time
+        today_str = time.strftime("%d-%b-%Y")
+        status, messages = mail.search(None, f'(FROM "noreply@id.banapassport.net" SINCE {today_str})')
         if status == "OK" and messages[0]:
             msg_nums = messages[0].split()[-20:]
             num_str = b",".join(msg_nums).decode()
