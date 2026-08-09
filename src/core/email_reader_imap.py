@@ -63,8 +63,10 @@ def get_bandai_namco_otp_imap(
     log.info(f"[{target_email}] Đang chờ OTP từ {otp_email} qua {imap_server} (Timeout: {timeout}s)")
     
     start_time = time.time()
+    poll_count = 0
     
     while time.time() - start_time < timeout:
+
         try:
             # 1. Kết nối IMAP (Sử dụng Semaphore để giới hạn tối đa 3 kết nối song song cùng lúc)
             with sem:
@@ -176,6 +178,10 @@ def get_bandai_namco_otp_imap(
         except Exception as e:
             log.error(f"[{target_email}] Lỗi kết nối IMAP: {e}")
             
+        poll_count += 1
+        elapsed = int(time.time() - start_time)
+        if poll_count % 2 == 0:
+            log.info(f"⏳ [{target_email}] Đang chờ Bandai Namco gửi mã OTP về hòm thư (Đã chờ {elapsed}s/{timeout}s)...")
         time.sleep(5)
         
     log.warning(f"[{target_email}] Hết thời gian ({timeout}s) không nhận được OTP qua IMAP.")
