@@ -76,7 +76,26 @@ async def handle_email_otp(page: Page, email: str, email_password: str, since_ts
         await page.wait_for_load_state("domcontentloaded", timeout=25000)
     except Exception:
         pass
+
+    # Kiểm tra xem Bandai Namco có báo mã OTP bị sai hoặc hết hạn không
+    await page.wait_for_timeout(2000)
+    try:
+        page_text = await page.evaluate("() => document.body ? document.body.innerText : ''")
+        if any(msg in page_text for msg in [
+            "The verification code you entered is incorrect or has expired",
+            "incorrect or has expired",
+            "入力された認証コードが正しくないか",
+            "有効期限が切れています",
+            "認証コードが正しくありません"
+        ]):
+            log.error(f"❌ [Màn hình OTP] Mã OTP {email_otp} bị Bandai Namco từ chối (Mã sai hoặc đã hết hạn)!")
+            raise Exception(f"INVALID_OTP: Mã OTP {email_otp} bị Bandai Namco báo sai hoặc hết hạn!")
+    except Exception as err_chk:
+        if "INVALID_OTP" in str(err_chk):
+            raise err_chk
+
     log.info(f"   [Màn hình OTP] Đã hoàn thành màn hình OTP (điều kiện phải qua màn sau). URL sau submit: {page.url}")
+
 
 
 async def run_step3(page: Page, email: str, password: str, birthday: str, has_bnid: bool = False, email_password: str = "", refresh_token: str = None, client_id: str = None, otp_email: str = "", otp_pass: str = "", provider: str = "") -> str:

@@ -96,15 +96,14 @@ def get_bandai_namco_otp_imap(
                     
                     msg = email.message_from_bytes(raw_email)
                     
-                    # 3. Lấy thời gian nhận mail
+                    # 3. Lấy thời gian nhận mail (Dùng mktime_tz trực tiếp để lấy Unix timestamp chính xác)
                     date_tuple = email.utils.parsedate_tz(msg['Date'])
                     if date_tuple:
-                        local_date = datetime.fromtimestamp(email.utils.mktime_tz(date_tuple))
-                        mail_ts = local_date.timestamp()
-                        
-                        # Bỏ qua mail cũ
-                        if since_ts > 0 and mail_ts < since_ts:
+                        mail_ts = float(email.utils.mktime_tz(date_tuple))
+                        # Bỏ qua mail cũ hơn mốc thời gian từ lúc bấm gửi OTP
+                        if since_ts > 0 and mail_ts < (since_ts - 10):
                             continue
+
                             
                     # 4. Kiểm tra TO address có chứa target_email không (cho Alias)
                     # Bandai account confirmation mail usually goes to the exact target_email
