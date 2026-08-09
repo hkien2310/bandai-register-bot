@@ -126,8 +126,13 @@ def get_bandai_namco_otp_imap(
                                 return otp_code
             
             mail.logout()
+        except imaplib.IMAP4.error as auth_err:
             err_str = str(auth_err)
-            if "AUTHENTICATIONFAILED" in err_str or "Invalid credentials" in err_str or "LOGIN failed" in err_str:
+            if "Too many simultaneous connections" in err_str or "simultaneous connections" in err_str.lower():
+                log.warning(f"⚠️ [{target_email}] Máy chủ IMAP giới hạn kết nối song song. Đang đợi 3s để thử lại...")
+                time.sleep(3)
+                continue
+            elif "AUTHENTICATIONFAILED" in err_str or "Invalid credentials" in err_str or "LOGIN failed" in err_str:
                 domain = str(otp_email).split("@")[-1].lower() if "@" in str(otp_email) else ""
                 if "icloud.com" in domain or "me.com" in domain or "mac.com" in domain:
                     log.error(
