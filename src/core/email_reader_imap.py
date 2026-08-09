@@ -20,7 +20,7 @@ import threading
 # Gmail: tối đa 5 kết nối IMAP đồng thời
 _IMAP_SEMAPHORES = {
     "imap.mail.me.com": threading.Semaphore(3),
-    "imap.gmail.com": threading.Semaphore(5),
+    "imap.gmail.com": threading.Semaphore(2),
 }
 _DEFAULT_SEMAPHORE = threading.Semaphore(3)
 
@@ -83,66 +83,56 @@ def get_bandai_namco_otp_imap(
 
             if status == "OK" and messages[0]:
                 msg_nums = messages[0].split()
-                # Chỉ kiểm tra 20 email mới nhất — OTP hợp lệ luôn nằm trong nhóm này
-                # Tránh duyệt 286 email cũ tốn thời gian
-                if len(msg_nums) > 20:
-                    log.info(f"[{target_email}] 📬 {len(msg_nums)} email hôm nay — chỉ kiểm tra 20 mới nhất...")
-                    msg_nums = msg_nums[-20:]
-                else:
-                    log.info(f"[{target_email}] 📬 {len(msg_nums)} email Bandai hôm nay — đang kiểm tra...")
-                # Duyệt từ mail mới nhất (số to nhất) lùi về
-                for num in reversed(msg_nums):
-                    # Bước 1: Fetch chỉ header để check timestamp + TO (nhanh hơn nhiều)
-                    res, hdr_data = mail.fetch(num, "(BODY.PEEK[HEADER.FIELDS (FROM TO DATE)])")
-                    if res != "OK":
-                        continue
-                    raw_hdr = next((p[1] for p in hdr_data if isinstance(p, tuple) and p[1]), None)
-                    if not raw_hdr:
-                        continue
-                    hdr_msg = email.message_from_bytes(raw_hdr)
-
-                    # Kiểm tra timestamp — bỏ qua email quá cũ
-                    date_tuple = email.utils.parsedate_tz(hdr_msg['Date'])
-                    if date_tuple:
-                        mail_ts = float(email.utils.mktime_tz(date_tuple))
-                        if since_ts > 0 and mail_ts < (since_ts - 10):
+                # Chỉ lấy tối đa 5 email mới nhất (OTP vừa gửi chắc chắn thuộc 5 mail này)
+                top_nums = msg_nums[-5:]
+                log.info(f"[{target_email}] 📬 Đang tải nhanh {len(top_nums)} email mới nhất trong 1 lượt...")
+                
+                num_str = b','.join(top_nums).decode()
+                res, fetch_data = mail.fetch(num_str, "(BODY.PEEK[])")
+                
+                if res == "OK" and fetch_data:
+                    # Lặp qua các mail trả về theo thứ tự từ mới tới cũ
+                    for item in reversed(fetch_data):
+                        if not isinstance(item, tuple) or not item[1]:
                             continue
+                        raw_email = item[1]
+                        msg = email.message_from_bytes(raw_email)
 
-                    # Kiểm tra TO address — bỏ qua nếu không phải account này
-                    to_address = str(hdr_msg.get("To", "")).lower()
-                    if target_email not in to_address:
-                        continue
+                        # 1. Kiểm tra timestamp
+                        date_tuple = email.utils.parsedate_tz(msg['Date'])
+                        if date_tuple:
+                            mail_ts = float(email.utils.mktime_tz(date_tuple))
+                            if since_ts > 0 and mail_ts < (since_ts - 10):
+                                continue
 
-                    # Bước 2: Chỉ fetch full body nếu header đã pass
-                    res, msg_data = mail.fetch(num, "(BODY.PEEK[])")
-                    if res != "OK":
-                        continue
-                    raw_email = next((p[1] for p in msg_data if isinstance(p, tuple) and p[1]), None)
-                    if not raw_email:
-                        continue
+                        # 2. Kiểm tra TO address / Target email
+                        to_address = str(msg.get("To", "")).lower()
+                        
+                        body = ""
+                        if msg.is_multipart():
+                            for part in msg.walk():
+                                if part.get_content_type() == "text/plain":
+                                    try:
+                                        charset = part.get_content_charset() or 'utf-8'
+                                        body = part.get_payload(decode=True).decode(charset, errors='replace')
+                                    except:
+                                        pass
+                        else:
+                            try:
+                                charset = msg.get_content_charset() or 'utf-8'
+                                body = msg.get_payload(decode=True).decode(charset, errors='replace')
+                            except:
+                                pass
 
-                    msg = email.message_from_bytes(raw_email)
-                    body = ""
-                    if msg.is_multipart():
-                        for part in msg.walk():
-                            if part.get_content_type() == "text/plain":
-                                try:
-                                    charset = part.get_content_charset() or 'utf-8'
-                                    body = part.get_payload(decode=True).decode(charset, errors='replace')
-                                except:
-                                    pass
-                    else:
-                        try:
-                            charset = msg.get_content_charset() or 'utf-8'
-                            body = msg.get_payload(decode=True).decode(charset, errors='replace')
-                        except:
-                            pass
-
-                    if body:
-                        match = re.search(r'([0-9]{6})', body)
-                        if match:
-                            otp_code = match.group(1)
-                            log.info(f"[{target_email}] ✅ Đã tìm thấy mã OTP: {otp_code}")
+                        if body:
+                            # Đảm bảo target_email nằm trong TO address hoặc body (tránh alias khác)
+                            if target_email in to_address or target_email in body.lower():
+                                match = re.search(r'([0-9]{6})', body)
+                                if match:
+                                    otp_code = match.group(1)
+                                    log.info(f"[{target_email}] ✅ Đã tìm thấy mã OTP: {otp_code}")
+                                    mail.logout()
+                                    return otp_code
                             mail.logout()
                             return otp_code
             
