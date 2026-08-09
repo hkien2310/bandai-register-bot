@@ -83,7 +83,13 @@ def get_bandai_namco_otp_imap(
 
             if status == "OK" and messages[0]:
                 msg_nums = messages[0].split()
-                log.info(f"[{target_email}] 📬 {len(msg_nums)} email Bandai hôm nay — đang kiểm tra...")
+                # Chỉ kiểm tra 20 email mới nhất — OTP hợp lệ luôn nằm trong nhóm này
+                # Tránh duyệt 286 email cũ tốn thời gian
+                if len(msg_nums) > 20:
+                    log.info(f"[{target_email}] 📬 {len(msg_nums)} email hôm nay — chỉ kiểm tra 20 mới nhất...")
+                    msg_nums = msg_nums[-20:]
+                else:
+                    log.info(f"[{target_email}] 📬 {len(msg_nums)} email Bandai hôm nay — đang kiểm tra...")
                 # Duyệt từ mail mới nhất (số to nhất) lùi về
                 for num in reversed(msg_nums):
                     # Bước 1: Fetch chỉ header để check timestamp + TO (nhanh hơn nhiều)
