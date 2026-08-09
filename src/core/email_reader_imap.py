@@ -76,47 +76,51 @@ def get_bandai_namco_otp_imap(
                 mail.login(otp_email, otp_pass)
                 mail.select("inbox")
             # Semaphore giải phóng ngay sau login — search/fetch chạy ngoài slot
-            log.info(f"[{target_email}] 🔍 Đang tìm email Bandai Namco trong hòm thư...")
-            status, messages = mail.search(None, '(FROM "noreply@id.banapassport.net")')
+            # Lọc SINCE hôm nay từ server để tránh scan toàn bộ 287+ email cũ
+            since_date = time.strftime("%d-%b-%Y", time.gmtime(since_ts if since_ts > 0 else time.time() - 600))
+            log.info(f"[{target_email}] 🔍 Tìm email Bandai từ ngày {since_date} trong hòm thư...")
+            status, messages = mail.search(None, f'(FROM "noreply@id.banapassport.net" SINCE {since_date})')
 
             if status == "OK" and messages[0]:
                 msg_nums = messages[0].split()
+                log.info(f"[{target_email}] 📬 {len(msg_nums)} email Bandai hôm nay — đang kiểm tra...")
                 # Duyệt từ mail mới nhất (số to nhất) lùi về
                 for num in reversed(msg_nums):
-                    res, msg_data = mail.fetch(num, "(BODY.PEEK[])")
+                    # Bước 1: Fetch chỉ header để check timestamp + TO (nhanh hơn nhiều)
+                    res, hdr_data = mail.fetch(num, "(BODY.PEEK[HEADER.FIELDS (FROM TO DATE)])")
                     if res != "OK":
                         continue
-                        
-                    raw_email = next(
-                        (p[1] for p in msg_data if isinstance(p, tuple) and p[1]),
-                        None
-                    )
-                    if not raw_email:
+                    raw_hdr = next((p[1] for p in hdr_data if isinstance(p, tuple) and p[1]), None)
+                    if not raw_hdr:
                         continue
-                    
-                    msg = email.message_from_bytes(raw_email)
-                    
-                    # 3. Lấy thời gian nhận mail (Dùng mktime_tz trực tiếp để lấy Unix timestamp chính xác)
-                    date_tuple = email.utils.parsedate_tz(msg['Date'])
+                    hdr_msg = email.message_from_bytes(raw_hdr)
+
+                    # Kiểm tra timestamp — bỏ qua email quá cũ
+                    date_tuple = email.utils.parsedate_tz(hdr_msg['Date'])
                     if date_tuple:
                         mail_ts = float(email.utils.mktime_tz(date_tuple))
-                        # Bỏ qua mail cũ hơn mốc thời gian từ lúc bấm gửi OTP
                         if since_ts > 0 and mail_ts < (since_ts - 10):
                             continue
 
-                            
-                    # 4. Kiểm tra TO address có chứa target_email không (cho Alias)
-                    # Bandai account confirmation mail usually goes to the exact target_email
-                    to_address = str(msg.get("To", "")).lower()
-                    
-                    # 5. Lấy nội dung body
+                    # Kiểm tra TO address — bỏ qua nếu không phải account này
+                    to_address = str(hdr_msg.get("To", "")).lower()
+                    if target_email not in to_address:
+                        continue
+
+                    # Bước 2: Chỉ fetch full body nếu header đã pass
+                    res, msg_data = mail.fetch(num, "(BODY.PEEK[])")
+                    if res != "OK":
+                        continue
+                    raw_email = next((p[1] for p in msg_data if isinstance(p, tuple) and p[1]), None)
+                    if not raw_email:
+                        continue
+
+                    msg = email.message_from_bytes(raw_email)
                     body = ""
                     if msg.is_multipart():
                         for part in msg.walk():
-                            content_type = part.get_content_type()
-                            if content_type == "text/plain":
+                            if part.get_content_type() == "text/plain":
                                 try:
-                                    # Fallback to empty charset if None
                                     charset = part.get_content_charset() or 'utf-8'
                                     body = part.get_payload(decode=True).decode(charset, errors='replace')
                                 except:
@@ -127,18 +131,14 @@ def get_bandai_namco_otp_imap(
                             body = msg.get_payload(decode=True).decode(charset, errors='replace')
                         except:
                             pass
-                            
-                    # Kiểm tra xem body hoặc to_address có chứa mã 6 số
+
                     if body:
-                        # Kiểm tra xem target_email có nằm trong email này không (để tránh lấy nhầm alias khác)
-                        # TO address hoặc nội dung body
-                        if target_email in to_address or target_email in body.lower():
-                            match = re.search(r'([0-9]{6})', body)
-                            if match:
-                                otp_code = match.group(1)
-                                log.info(f"[{target_email}] Đã tìm thấy mã OTP: {otp_code}")
-                                mail.logout()
-                                return otp_code
+                        match = re.search(r'([0-9]{6})', body)
+                        if match:
+                            otp_code = match.group(1)
+                            log.info(f"[{target_email}] ✅ Đã tìm thấy mã OTP: {otp_code}")
+                            mail.logout()
+                            return otp_code
             
             mail.logout()
         except imaplib.IMAP4.error as auth_err:
