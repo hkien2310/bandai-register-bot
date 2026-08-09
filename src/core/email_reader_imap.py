@@ -13,6 +13,17 @@ from src.utils.logger import get_logger
 
 log = get_logger("email_reader_imap")
 
+import threading
+
+# Quản lý giới hạn kết nối song song toàn cục cho từng nhà cung cấp mail
+# iCloud: tối đa 3 kết nối IMAP đồng thời
+# Gmail: tối đa 5 kết nối IMAP đồng thời
+_IMAP_SEMAPHORES = {
+    "imap.mail.me.com": threading.Semaphore(3),
+    "imap.gmail.com": threading.Semaphore(5),
+}
+_DEFAULT_SEMAPHORE = threading.Semaphore(3)
+
 def _get_imap_server(email_address: str) -> str:
     """Trả về IMAP server tương ứng với đuôi email."""
     domain = email_address.split("@")[-1].lower()
@@ -48,16 +59,19 @@ def get_bandai_namco_otp_imap(
         return ""
 
     imap_server = _get_imap_server(otp_email)
+    sem = _IMAP_SEMAPHORES.get(imap_server, _DEFAULT_SEMAPHORE)
     log.info(f"[{target_email}] Đang chờ OTP từ {otp_email} qua {imap_server} (Timeout: {timeout}s)")
     
     start_time = time.time()
     
     while time.time() - start_time < timeout:
         try:
-            # 1. Kết nối IMAP
-            mail = imaplib.IMAP4_SSL(imap_server)
-            mail.login(otp_email, otp_pass)
-            mail.select("inbox")
+            # 1. Kết nối IMAP (Sử dụng Semaphore để giới hạn tối đa 3 kết nối song song cùng lúc)
+            with sem:
+                mail = imaplib.IMAP4_SSL(imap_server)
+                mail.login(otp_email, otp_pass)
+                mail.select("inbox")
+
             
             # 2. Tìm kiếm email từ Banapassport
             # Lưu ý: Tìm theo FROM sẽ nhanh hơn duyệt toàn bộ
