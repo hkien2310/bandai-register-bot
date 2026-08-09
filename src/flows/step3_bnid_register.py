@@ -107,8 +107,11 @@ async def run_step3(page: Page, email: str, password: str, birthday: str, has_bn
     
     Trả về BNID User Code.
     """
-    # Mở tab chuẩn bị lấy email trước
-    since_ts = time.time()
+    # Nhìn lui tối đa 10 phút (thời hạn hiệu lực OTP của Bandai Namco).
+    # Trường hợp account chạy lại sau lần fail: Bandai không gửi email mới
+    # nên cần bắt được OTP cũ vẫn còn trong hòm thư và chưa hết hạn.
+    # Filter TO-address trong IMAP đảm bảo không bốc nhầm OTP của account khác.
+    since_ts = time.time() - 600
     
     mail_page = None
     is_outlook = email.lower().endswith(("@hotmail.com", "@outlook.com", "@live.com"))
