@@ -68,16 +68,17 @@ def get_bandai_namco_otp_imap(
     while time.time() - start_time < timeout:
 
         try:
-            # 1. Kết nối IMAP (Semaphore giới hạn kết nối đồng thời)
-            log.info(f"[{target_email}] ⏳ Đang chờ kết nối IMAP ({imap_server})... (Đã chờ {int(time.time()-start_time)}s/{timeout}s)")
+            # 1. Kết nối IMAP với timeout 30s (tránh treo vô hạn)
+            log.info(f"[{target_email}] ⏳ Đang kết nối IMAP ({imap_server})... (Đã chờ {int(time.time()-start_time)}s/{timeout}s)")
             with sem:
-                log.info(f"[{target_email}] 🔗 Đã vào IMAP slot — Đang đăng nhập {otp_email}...")
-                mail = imaplib.IMAP4_SSL(imap_server)
+                log.info(f"[{target_email}] 🔗 Vào IMAP slot — đăng nhập {otp_email}...")
+                mail = imaplib.IMAP4_SSL(imap_server, timeout=30)
                 mail.login(otp_email, otp_pass)
                 mail.select("inbox")
-                # 2. Tìm kiếm trong cùng semaphore slot để tránh logout giữa chừng
-                status, messages = mail.search(None, '(FROM "noreply@id.banapassport.net")')
-            
+            # Semaphore giải phóng ngay sau login — search/fetch chạy ngoài slot
+            log.info(f"[{target_email}] 🔍 Đang tìm email Bandai Namco trong hòm thư...")
+            status, messages = mail.search(None, '(FROM "noreply@id.banapassport.net")')
+
             if status == "OK" and messages[0]:
                 msg_nums = messages[0].split()
                 # Duyệt từ mail mới nhất (số to nhất) lùi về
@@ -173,8 +174,10 @@ def get_bandai_namco_otp_imap(
 
             else:
                 log.error(f"[{target_email}] Lỗi IMAP Auth: {auth_err}")
+        except (OSError, TimeoutError, ConnectionError) as net_err:
+            log.warning(f"⚠️ [{target_email}] Lỗi mạng khi kết nối IMAP ({imap_server}): {net_err}. Thử lại sau 5s...")
         except Exception as e:
-            log.error(f"[{target_email}] Lỗi kết nối IMAP: {e}")
+            log.warning(f"⚠️ [{target_email}] Lỗi kết nối IMAP không xác định: {type(e).__name__}: {e}. Thử lại sau 5s...")
             
         poll_count += 1
         elapsed = int(time.time() - start_time)
