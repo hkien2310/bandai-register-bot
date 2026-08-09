@@ -28,7 +28,8 @@ async def handle_email_otp(page: Page, email: str, email_password: str, since_ts
     try:
         page_text = await page.evaluate("() => document.body ? document.body.innerText : ''")
         if "We've already sent an email" in page_text or "already sent" in page_text.lower():
-            log.warning(f"   [Màn hình OTP] ⚠️ Bandai Namco báo đã gửi email OTP từ trước rồi (chạy lại sau lần fail). Sẽ tìm OTP cũ trong hòm thư (nhìn lui 10 phút)...")
+            log.warning(f"   [Màn hình OTP] ⚠️ Bandai Namco báo đã gửi email OTP từ trước rồi. Đặt since_ts=0 để bốc OTP mới nhất trong hòm thư...")
+            since_ts = 0
     except Exception:
         pass
 

@@ -207,7 +207,7 @@ class NamcoBotGUI:
     def update_logs(self):
         user_keywords = [
             "🚀 Bắt đầu xử lý:",
-            "✅", "❌", "⚠️", "🔄", "⏳", "🎉", "🛑", "🔥", "🚧",
+            "✅", "❌", "⚠️", "🔄", "⏳", "🎉", "🛑", "🔥", "🚧", "🔗", "🔍", "📬", "📧", "📋",
             "proxy", "[ERROR]", "[WARNING]",
             "Không còn", "kết nối", "Sheets", "SMS",
             "HOÀN TẤT", "BẮT ĐẦU", "GIỚI HẠN",
