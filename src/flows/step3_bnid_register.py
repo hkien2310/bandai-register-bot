@@ -93,12 +93,15 @@ async def handle_email_otp(page: Page, email: str, email_password: str, since_ts
         if any(msg in page_text for msg in [
             "The verification code you entered is incorrect or has expired",
             "incorrect or has expired",
+            "Multiple unsuccessful attempts have invalidated your authentication code",
+            "invalidated your authentication code",
+            "Please restart the change process",
             "入力された認証コードが正しくないか",
             "有効期限が切れています",
             "認証コードが正しくありません"
         ]):
-            log.error(f"❌ [Màn hình OTP] Mã OTP {email_otp} bị Bandai Namco từ chối (Mã sai hoặc đã hết hạn)!")
-            raise Exception(f"INVALID_OTP: Mã OTP {email_otp} bị Bandai Namco báo sai hoặc hết hạn!")
+            log.error(f"❌ [Màn hình OTP] Mã OTP {email_otp} bị Bandai Namco từ chối (Mã sai, bị vô hiệu hoá hoặc đã hết hạn)!")
+            raise RuntimeError("INVALID_OTP: Verification code incorrect, expired or invalidated")
     except Exception as err_chk:
         if "INVALID_OTP" in str(err_chk):
             raise err_chk
