@@ -35,6 +35,47 @@ def _get_imap_server(email_address: str) -> str:
         # Mặc định thử gmail nếu không rõ
         return "imap.gmail.com"
 
+class IMAPSessionManager:
+    """
+    Quản lý kết nối IMAP tập trung dùng chung cho nhiều Worker.
+    - Tất cả worker cùng đăng ký qua hòm otp_email sẽ TÁI SỬ DỤNG DUY NHẤT 1 KẾT NỐI IMAP.
+    - Đếm số worker đang sử dụng kết nối (ref_count).
+    - CHỈ ĐĂNG XUẤT (mail.logout()) VÀ GIẢI PHÓNG KẾT NỐI KHI TẤT CẢ WORKER ĐỀU ĐÃ XONG (ref_count = 0).
+    """
+    def __init__(self):
+        self._sessions = {}
+        self._manager_lock = threading.Lock()
+
+    def acquire_session(self, otp_email: str):
+        with self._manager_lock:
+            if otp_email not in self._sessions:
+                self._sessions[otp_email] = {
+                    "mail": None,
+                    "ref_count": 0,
+                    "lock": threading.Lock()
+                }
+            sess = self._sessions[otp_email]
+            sess["ref_count"] += 1
+            return sess
+
+    def release_session(self, otp_email: str):
+        with self._manager_lock:
+            sess = self._sessions.get(otp_email)
+            if sess:
+                sess["ref_count"] = max(0, sess["ref_count"] - 1)
+                if sess["ref_count"] == 0:
+                    mail = sess.get("mail")
+                    if mail:
+                        try:
+                            mail.logout()
+                            log.info(f"[{otp_email}] 🚪 Tất cả worker đã hoàn tất. Đóng kết nối IMAP tập trung.")
+                        except Exception:
+                            pass
+                        sess["mail"] = None
+                    del self._sessions[otp_email]
+
+_SESSION_MANAGER = IMAPSessionManager()
+
 def get_bandai_namco_otp_imap(
     target_email: str,
     otp_email: str,
@@ -47,12 +88,6 @@ def get_bandai_namco_otp_imap(
     Quét hộp thư INBOX để tìm email gửi từ noreply@id.banapassport.net.
     Lọc các email có nội dung đề cập tới `target_email` (nếu dùng alias).
     Trả về chuỗi 6 số hoặc chuỗi rỗng nếu thất bại/hết giờ.
-    
-    :param target_email: Email thật dùng để đăng ký (ví dụ: alias+1@gmail.com)
-    :param otp_email: Email gốc dùng để login IMAP (ví dụ: alias@gmail.com)
-    :param otp_pass: App Password của email gốc
-    :param timeout: Thời gian chờ tối đa (giây)
-    :param since_ts: Chỉ lấy mail nhận SAU mốc thời gian này (timestamp)
     """
     if not otp_email or not otp_pass:
         log.error(f"[{target_email}] Thiếu otp_email hoặc otp_pass để đăng nhập IMAP.")
@@ -65,7 +100,8 @@ def get_bandai_namco_otp_imap(
     import src.config as config
     start_time = time.time()
     poll_count = 0
-    mail = None
+    
+    session = _SESSION_MANAGER.acquire_session(otp_email)
     
     try:
         while time.time() - start_time < timeout:
@@ -74,80 +110,82 @@ def get_bandai_namco_otp_imap(
                 return ""
 
             try:
-                # 1. Đăng nhập IMAP một lần duy nhất. Nếu đã mở thì dùng lại, nếu đứt thì tự tạo lại.
-                if mail is None:
-                    log.info(f"[{target_email}] ⏳ Đang kết nối IMAP ({imap_server})... (Đã chờ {int(time.time()-start_time)}s/{timeout}s)")
-                    with sem:
-                        log.info(f"[{target_email}] 🔗 Vào IMAP slot — đăng nhập {otp_email}...")
-                        mail = imaplib.IMAP4_SSL(imap_server, timeout=30)
-                        mail.login(otp_email, otp_pass)
-                        mail.select("inbox")
-                else:
-                    try:
-                        # Kiểm tra xem kết nối IMAP có còn sống hay không
-                        status, _ = mail.noop()
-                        if status != "OK":
+                with session["lock"]:
+                    mail = session["mail"]
+                    # 1. Đăng nhập IMAP tập trung duy nhất 1 lần nếu chưa có
+                    if mail is None:
+                        log.info(f"[{target_email}] ⏳ Kết nối & Đăng nhập IMAP tập trung ({imap_server})...")
+                        with sem:
+                            log.info(f"[{target_email}] 🔗 Vào IMAP slot — đăng nhập {otp_email}...")
+                            mail = imaplib.IMAP4_SSL(imap_server, timeout=30)
+                            mail.login(otp_email, otp_pass)
+                            mail.select("inbox")
+                            session["mail"] = mail
+                    else:
+                        try:
+                            # Kiểm tra xem kết nối IMAP dùng chung có còn sống hay không
+                            status, _ = mail.noop()
+                            if status != "OK":
+                                session["mail"] = None
+                                mail = None
+                                continue
+                        except Exception:
+                            session["mail"] = None
                             mail = None
                             continue
-                    except Exception:
-                        mail = None
-                        continue
 
-                # 2. Tìm kiếm email Bandai Namco
-                since_date = time.strftime("%d-%b-%Y", time.gmtime(since_ts if since_ts > 0 else time.time() - 600))
-                status, messages = mail.search(None, f'(FROM "noreply@id.banapassport.net" SINCE {since_date})')
+                    # 2. Tìm kiếm email Bandai Namco trên kết nối IMAP tập trung
+                    since_date = time.strftime("%d-%b-%Y", time.gmtime(since_ts if since_ts > 0 else time.time() - 600))
+                    status, messages = mail.search(None, f'(FROM "noreply@id.banapassport.net" SINCE {since_date})')
 
-                if status == "OK" and messages[0]:
-                    msg_nums = messages[0].split()
-                    # Chỉ lấy tối đa 5 email mới nhất (OTP vừa gửi chắc chắn thuộc 5 mail này)
-                    top_nums = msg_nums[-5:]
-                    
-                    num_str = b','.join(top_nums).decode()
-                    res, fetch_data = mail.fetch(num_str, "(BODY.PEEK[])")
-                    
-                    if res == "OK" and fetch_data:
-                        # Lặp qua các mail trả về theo thứ tự từ mới tới cũ
-                        for item in reversed(fetch_data):
-                            if not isinstance(item, tuple) or not item[1]:
-                                continue
-                            raw_email = item[1]
-                            msg = email.message_from_bytes(raw_email)
-
-                            # 1. Kiểm tra timestamp
-                            date_tuple = email.utils.parsedate_tz(msg['Date'])
-                            if date_tuple:
-                                mail_ts = float(email.utils.mktime_tz(date_tuple))
-                                if since_ts > 0 and mail_ts < (since_ts - 10):
+                    if status == "OK" and messages[0]:
+                        msg_nums = messages[0].split()
+                        top_nums = msg_nums[-5:]
+                        
+                        num_str = b','.join(top_nums).decode()
+                        res, fetch_data = mail.fetch(num_str, "(BODY.PEEK[])")
+                        
+                        if res == "OK" and fetch_data:
+                            for item in reversed(fetch_data):
+                                if not isinstance(item, tuple) or not item[1]:
                                     continue
+                                raw_email = item[1]
+                                msg = email.message_from_bytes(raw_email)
 
-                            # 2. Kiểm tra TO address / Target email
-                            to_address = str(msg.get("To", "")).lower()
-                            
-                            body = ""
-                            if msg.is_multipart():
-                                for part in msg.walk():
-                                    if part.get_content_type() == "text/plain":
-                                        try:
-                                            charset = part.get_content_charset() or 'utf-8'
-                                            body = part.get_payload(decode=True).decode(charset, errors='replace')
-                                        except:
-                                            pass
-                            else:
-                                try:
-                                    charset = msg.get_content_charset() or 'utf-8'
-                                    body = msg.get_payload(decode=True).decode(charset, errors='replace')
-                                except:
-                                    pass
+                                # 1. Kiểm tra timestamp
+                                date_tuple = email.utils.parsedate_tz(msg['Date'])
+                                if date_tuple:
+                                    mail_ts = float(email.utils.mktime_tz(date_tuple))
+                                    if since_ts > 0 and mail_ts < (since_ts - 10):
+                                        continue
 
-                            if body and (target_email in to_address or target_email in body.lower()):
-                                # Chỉ match mã 6 chữ số độc lập (\b\d{6}\b) để tránh lấy nhầm số từ link/ngày tháng
-                                match = re.search(r'\b([0-9]{6})\b', body)
-                                if match:
-                                    otp_code = match.group(1)
-                                    log.info(f"[{target_email}] ✅ Đã tìm thấy mã OTP: {otp_code}")
-                                    return otp_code
+                                # 2. Kiểm tra TO address / Target email
+                                to_address = str(msg.get("To", "")).lower()
+                                
+                                body = ""
+                                if msg.is_multipart():
+                                    for part in msg.walk():
+                                        if part.get_content_type() == "text/plain":
+                                            try:
+                                                charset = part.get_content_charset() or 'utf-8'
+                                                body = part.get_payload(decode=True).decode(charset, errors='replace')
+                                            except:
+                                                pass
+                                else:
+                                    try:
+                                        charset = msg.get_content_charset() or 'utf-8'
+                                        body = msg.get_payload(decode=True).decode(charset, errors='replace')
+                                    except:
+                                        pass
+
+                                if body and (target_email in to_address or target_email in body.lower()):
+                                    match = re.search(r'\b([0-9]{6})\b', body)
+                                    if match:
+                                        otp_code = match.group(1)
+                                        log.info(f"[{target_email}] ✅ Đã tìm thấy mã OTP: {otp_code}")
+                                        return otp_code
             except imaplib.IMAP4.error as auth_err:
-                mail = None
+                session["mail"] = None
                 err_str = str(auth_err)
                 if "Too many simultaneous connections" in err_str or "simultaneous connections" in err_str.lower():
                     log.warning(f"⚠️ [{target_email}] Máy chủ IMAP giới hạn kết nối song song. Đang đợi 3s để thử lại...")
@@ -181,10 +219,10 @@ def get_bandai_namco_otp_imap(
                 else:
                     log.error(f"[{target_email}] Lỗi IMAP Auth: {auth_err}")
             except (OSError, TimeoutError, ConnectionError) as net_err:
-                mail = None
+                session["mail"] = None
                 log.warning(f"⚠️ [{target_email}] Lỗi mạng khi kết nối IMAP ({imap_server}): {net_err}. Thử lại sau 5s...")
             except Exception as e:
-                mail = None
+                session["mail"] = None
                 log.warning(f"⚠️ [{target_email}] Lỗi kết nối IMAP không xác định: {type(e).__name__}: {e}. Thử lại sau 5s...")
                 
             poll_count += 1
@@ -200,11 +238,7 @@ def get_bandai_namco_otp_imap(
         log.warning(f"[{target_email}] Hết thời gian ({timeout}s) không nhận được OTP qua IMAP.")
         return ""
     finally:
-        if mail:
-            try:
-                mail.logout()
-            except Exception:
-                pass
+        _SESSION_MANAGER.release_session(otp_email)
 
 
 def get_gmail_dot_alias(base_email: str, index: int) -> str:
