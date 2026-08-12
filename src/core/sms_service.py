@@ -187,6 +187,37 @@ def release_manual_phone(phone: str):
         except Exception as e:
             log.warning(f"⚠️ Lỗi khi release_manual_phone ({phone}): {e}")
 
+def mark_manual_phone_used_due_to_error(phone: str, reason: str = "Trùng/Đã được sử dụng trên Bandai"):
+    """
+    Đánh dấu SĐT thủ công là is_used = True khi bị lỗi trùng/đã sử dụng trên Bandai Namco.
+    """
+    if not phone: return
+    manual_path = config.DATA_DIR / "manual_phone_numbers.json"
+    with _manual_numbers_lock:
+        if not manual_path.exists(): return
+        try:
+            with open(manual_path, "r", encoding="utf-8") as f:
+                numbers = json.load(f)
+            if not isinstance(numbers, list): return
+
+            clean_p = format_jp_phone(phone).replace("-", "").replace(" ", "")
+            updated = False
+            for item in numbers:
+                if isinstance(item, dict):
+                    item_p = format_jp_phone(item.get("phone", "")).replace("-", "").replace(" ", "")
+                    if item_p == clean_p or item.get("phone") == phone:
+                        item["is_used"] = True
+                        item["in_use_by"] = None
+                        item["error_reason"] = reason
+                        updated = True
+                        break
+            if updated:
+                with open(manual_path, "w", encoding="utf-8") as f:
+                    json.dump(numbers, f, indent=4, ensure_ascii=False)
+                log.warning(f"📱 [SĐT Thủ Công] ❌ SĐT {phone} bị lỗi '{reason}'. Đã đánh dấu ĐÃ DÙNG (is_used = True) để không thử lại!")
+        except Exception as e:
+            log.warning(f"⚠️ Lỗi khi mark_manual_phone_used_due_to_error ({phone}): {e}")
+
 
 
 
@@ -514,11 +545,14 @@ def poll_sms_otp(
     log.warning(f"⏰ Timeout {timeout}s — không nhận được SMS OTP")
     return None
 
-def cancel(pkey: str, phone: str = "") -> bool:
+def cancel(pkey: str, phone: str = "", is_already_used: bool = False) -> bool:
     """Cancel order and refund if no OTP received."""
     if pkey in ("MANUAL", ""):
         if phone:
-            release_manual_phone(phone)
+            if is_already_used:
+                mark_manual_phone_used_due_to_error(phone, reason="SĐT đã được sử dụng trên Bandai Namco (既に使用されています)")
+            else:
+                release_manual_phone(phone)
         return True
 
     try:

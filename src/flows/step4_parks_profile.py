@@ -727,12 +727,16 @@ async def run_step4(page: Page, email: str, password: str, nickname: str, birthd
         else:
             # Tìm text lỗi cụ thể để log
             err_found = [e for e in phone_errors if e in page_text]
-            log.warning(f"   Số {phone} bị lỗi [{err_found}]. Hủy và thử số mới...")
+            is_used_err = any(e in page_text for e in ["既に使用", "使用されています", "already in use"])
+            log.warning(f"   Số {phone} bị lỗi [{err_found}]. Hủy/Đánh dấu và thử số mới...")
             try:
-                sms_service.cancel(pkey)
-                log.info(f"   Đã hủy số {phone}.")
+                sms_service.cancel(pkey, phone=phone, is_already_used=is_used_err)
+                if is_used_err:
+                    log.warning(f"   ❌ SĐT {phone} đã được sử dụng trên Bandai Namco -> Đã đánh dấu là ĐÃ DÙNG (is_used = True)!")
+                else:
+                    log.info(f"   Đã nhả/hủy số {phone}.")
             except Exception as ce:
-                log.warning(f"   Không hủy được số: {ce}")
+                log.warning(f"   Không hủy/đánh dấu được số: {ce}")
             phone = None
             pkey = None
             # Quay lại trang form nếu chưa ở trang form (có input TEL)
