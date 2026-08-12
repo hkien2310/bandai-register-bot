@@ -657,33 +657,59 @@ async def run_step4(page: Page, email: str, password: str, nickname: str, birthd
             await page.wait_for_load_state("domcontentloaded", timeout=20000)
         except Exception:
             pass
-        await page.wait_for_timeout(1500)
-        log.info(f"   Trang xác nhận: {page.url}")
+        await page.wait_for_timeout(2000)
+        log.info(f"   URL sau click '入力内容を確認する': {page.url}")
 
-        # Dump tất cả button/submit trên confirmation page để debug
-        all_btns = await page.evaluate("""
-            () => Array.from(document.querySelectorAll('button, input[type="submit"], a[href]')).map(el => ({
-                tag: el.tagName, text: el.innerText || el.value || '', type: el.type || '',
-                href: el.href || '', disabled: el.disabled
-            })).filter(el => el.text.trim().length > 0)
+        # ─── KIỂM TRA LỖI FORM NGAY TẠI ĐÂY ───
+        page_text = await page.evaluate("() => document.body ? document.body.innerText : ''")
+        phone_errors = [
+            "既に使用", "使用されています", "already in use",
+            "不正な電話番号", "invalid phone", "電話番号が正しくありません", "入力した電話番号"
+        ]
+        has_phone_error_text = any(err in page_text for err in phone_errors)
+
+        # Check ô TEL có bị highlight đỏ/pink (#ffb6c1 / rgb(255, 182, 193)) hoặc có class error không
+        has_tel_error_style = await page.evaluate("""
+            () => {
+                const tel = document.querySelector("input[name='TEL'], input#TEL, input[name='tel'], input#tel");
+                if (!tel) return false;
+                const style = window.getComputedStyle(tel);
+                const bg = style.backgroundColor || '';
+                const isRedPink = bg.includes('255, 182, 193') || bg.includes('ffb6c1') || bg.includes('255, 192') || bg.includes('red');
+                const hasErrClass = tel.classList.contains('error') || tel.classList.contains('err') || tel.classList.contains('is-invalid');
+                return isRedPink || hasErrClass;
+            }
         """)
-        log.info(f"   Buttons trên confirmation page: {all_btns}")
 
-        # Click 登録する — thử nhiều selector, cuối cùng fallback JS submit
-        log.info("   Click '登録する'...")
-        submit_sel = (
-            "button:has-text('登録する'), button:has-text('送信する'), "
-            "button:has-text('この内容で登録'), "
-            "input[type='submit'][value*='登録'], input[type='submit'][value*='送信'], "
-            "input[type='submit']:not([value])"
+        # Check xem ô TEL có còn xuất hiện trên form không
+        still_has_tel_input = await page.query_selector("input[name='TEL'], input#TEL, input[name='tel'], input#tel")
+        
+        # Check nút 登録する (Confirmation page)
+        submit_btn_on_page = await page.query_selector(
+            "button:has-text('登録する'), input[type='submit'][value*='登録'], a:has-text('登録')"
         )
-        submit_btn = None
-        try:
-            submit_btn = await page.wait_for_selector(submit_sel, timeout=30000, state="visible")
-        except Exception:
-            log.warning("   selector thông thường timeout — thử click button cuối cùng trong form...")
+
+        if has_phone_error_text or has_tel_error_style or (still_has_tel_input and not submit_btn_on_page):
+            err_found = [e for e in phone_errors if e in page_text]
+            log.warning(f"   ❌ SĐT {phone} bị Bandai Namco báo lỗi/trùng [{err_found}] (màu nền TEL báo đỏ: {has_tel_error_style})! Hủy/Đánh dấu và thử số mới...")
             try:
-                # Fallback: JS click vào button submit cuối cùng
+                sms_service.cancel(pkey, phone=phone, is_already_used=True)
+                log.warning(f"   ❌ SĐT {phone} đã được sử dụng trên Bandai Namco -> Đã đánh dấu là ĐÃ DÙNG (is_used = True)!")
+            except Exception as ce:
+                log.warning(f"   Không hủy/đánh dấu được số: {ce}")
+            phone = None
+            pkey = None
+            continue
+
+        # ─── ĐÃ SANG TRANG XÁC NHẬN (CONFIRMATION PAGE) ───
+        log.info(f"   Trang xác nhận: {page.url}")
+        log.info("   Click '登録する'...")
+        try:
+            if submit_btn_on_page:
+                await submit_btn_on_page.scroll_into_view_if_needed()
+                await page.wait_for_timeout(500)
+                await submit_btn_on_page.click()
+            else:
                 await page.evaluate("""
                     () => {
                         const btns = [...document.querySelectorAll('button, input[type="submit"]')];
@@ -691,60 +717,26 @@ async def run_step4(page: Page, email: str, password: str, nickname: str, birthd
                         if (last) last.click();
                     }
                 """)
-                await page.wait_for_load_state("domcontentloaded", timeout=20000)
-                log.info("   JS fallback click done.")
-            except Exception as je:
-                log.warning(f"   JS fallback lỗi: {je}")
-
-        if submit_btn:
-            await submit_btn.scroll_into_view_if_needed()
-            await page.wait_for_timeout(500)
-            await submit_btn.click()
-            try:
-                await page.wait_for_load_state("domcontentloaded", timeout=20000)
-            except Exception:
-                pass
+            await page.wait_for_load_state("domcontentloaded", timeout=20000)
+        except Exception as se:
+            log.warning(f"   Lỗi khi click 登録する: {se}")
 
         await page.wait_for_timeout(2000)
-        log.info(f"   URL sau submit: {page.url}")
+        log.info(f"   URL sau submit final: {page.url}")
 
-        # Kiểm tra lỗi về số điện thoại sau khi trang reload
-        page_text = await page.evaluate("() => document.body.innerText")
-        phone_errors = [
-            "既に使用",           # đã được sử dụng
-            "使用されています",     # đã được sử dụng (dạng khác)
-            "already in use",
-            "不正な電話番号",       # số không hợp lệ
-            "invalid phone",
-            "電話番号が正しくありません",  # số không đúng
-            "入力した電話番号",     # bất kỳ lỗi về phone input
-        ]
-        phone_ok = not any(err in page_text for err in phone_errors)
-
-        if phone_ok:
-            log.info(f"   ✅ Số {phone} hợp lệ, đã submit thành công.")
+        # Kiểm tra xem đã hoàn thành Step 4 và chuyển tới trang SMS OTP chưa
+        is_sms_page = "sms_authentication" in page.url or await page.query_selector("input[name='auth_code'], input[name='sms_code'], input#auth_code, input#sms_code")
+        if is_sms_page or not await page.query_selector("input[name='TEL'], input#TEL"):
+            log.info(f"   ✅ Số {phone} hợp lệ, đã submit thành công!")
             break
         else:
-            # Tìm text lỗi cụ thể để log
-            err_found = [e for e in phone_errors if e in page_text]
-            is_used_err = any(e in page_text for e in ["既に使用", "使用されています", "already in use"])
-            log.warning(f"   Số {phone} bị lỗi [{err_found}]. Hủy/Đánh dấu và thử số mới...")
+            log.warning(f"   ⚠️ Vẫn chưa vào được trang SMS OTP sau khi submit (URL: {page.url}). Thử lại số mới...")
             try:
-                sms_service.cancel(pkey, phone=phone, is_already_used=is_used_err)
-                if is_used_err:
-                    log.warning(f"   ❌ SĐT {phone} đã được sử dụng trên Bandai Namco -> Đã đánh dấu là ĐÃ DÙNG (is_used = True)!")
-                else:
-                    log.info(f"   Đã nhả/hủy số {phone}.")
-            except Exception as ce:
-                log.warning(f"   Không hủy/đánh dấu được số: {ce}")
+                sms_service.cancel(pkey, phone=phone, is_already_used=True)
+            except Exception:
+                pass
             phone = None
             pkey = None
-            # Quay lại trang form nếu chưa ở trang form (có input TEL)
-            has_tel = await page.query_selector("input[name='TEL'], input#TEL, input[name='tel'], input#tel")
-            if not has_tel:
-                log.info("   Chưa quay lại trang form. Thực hiện go_back...")
-                await page.go_back()
-                await page.wait_for_load_state("domcontentloaded", timeout=60000)
             continue
 
     if not phone or not pkey:
