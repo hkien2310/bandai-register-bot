@@ -80,6 +80,9 @@ class NamcoBotGUI:
         self.use_manual_phone_list_var = tk.BooleanVar()
         self.use_manual_phone_list_var.set(bool(cfg.get("use_manual_phone_list", False)))
 
+        self.save_full_log_var = tk.BooleanVar()
+        self.save_full_log_var.set(bool(cfg.get("save_full_log_file", True)))
+
         self.browser_path_var = tk.StringVar()
         self.browser_path_var.set(cfg.get("browser_path", ""))
 
@@ -133,6 +136,7 @@ class NamcoBotGUI:
         ttk.Checkbutton(chk_frame, text="Chạy ngầm (Headless)", variable=self.headless_var).pack(side=tk.LEFT, padx=5)
         ttk.Checkbutton(chk_frame, text="Dùng Proxy", variable=self.proxy_var).pack(side=tk.LEFT, padx=5)
         ttk.Checkbutton(chk_frame, text="Dùng số lấy trước", variable=self.use_pre_fetched_numbers_var).pack(side=tk.LEFT, padx=5)
+        ttk.Checkbutton(chk_frame, text="📝 Ghi Full Log ra file (.txt)", variable=self.save_full_log_var).pack(side=tk.LEFT, padx=5)
         ttk.Button(chk_frame, text="⬇️ Tải trước số", command=self.prefetch_numbers_gui).pack(side=tk.LEFT, padx=2)
         ttk.Button(chk_frame, text="🛑 Dừng tải số", command=self.stop_prefetch_gui).pack(side=tk.LEFT, padx=2)
 
@@ -181,6 +185,9 @@ class NamcoBotGUI:
         
         self.clear_btn = ttk.Button(log_label_frame, text="🗑 Xoá Log", command=self.clear_log)
         self.clear_btn.pack(side=tk.RIGHT, padx=2)
+
+        self.open_logs_btn = ttk.Button(log_label_frame, text="📁 Thư mục Log", command=self.open_logs_folder)
+        self.open_logs_btn.pack(side=tk.RIGHT, padx=2)
 
         self.log_listbox = tk.Listbox(frame, height=10, bg="#f0f0f0", fg="#333", font=("Arial", 11))
         self.log_listbox.grid(row=12, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S))
@@ -269,12 +276,32 @@ class NamcoBotGUI:
         cfg["use_proxy"] = self.proxy_var.get()
         cfg["use_pre_fetched_numbers"] = self.use_pre_fetched_numbers_var.get()
         cfg["use_manual_phone_list"] = self.use_manual_phone_list_var.get()
+        cfg["save_full_log_file"] = self.save_full_log_var.get()
         cfg["browser_path"] = self.browser_path_var.get()
         cfg["default_dob"] = self.default_dob_var.get()
         cfg["default_prefecture"] = self.default_pref_var.get()
         cfg["xlsx_path"] = self.xlsx_path_var.get()
         cfg["active_sheet"] = self.active_sheet_var.get()
         save_json_config(cfg)
+
+    def open_logs_folder(self):
+        """Mở thư mục chứa file log phiên làm việc."""
+        import subprocess
+        import sys
+        import os
+        import src.config as bot_config
+        logs_dir = bot_config.LOGS_DIR
+        logs_dir.mkdir(exist_ok=True)
+        try:
+            if sys.platform == "darwin":
+                subprocess.run(["open", str(logs_dir)])
+            elif sys.platform == "win32":
+                os.startfile(str(logs_dir))
+            else:
+                subprocess.run(["xdg-open", str(logs_dir)])
+        except Exception as e:
+            from tkinter import messagebox
+            messagebox.showerror("Lỗi", f"Không thể mở thư mục logs: {e}")
 
     def start_bot(self):
         # Kiểm tra đã chọn file XLSX chưa

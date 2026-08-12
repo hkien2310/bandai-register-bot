@@ -90,6 +90,12 @@ USE_MANUAL_PHONE_LIST   = _get("use_manual_phone_list", False)
 # Active Sheet (Outlooks, Gmails, Iclouds)
 ACTIVE_SHEET            = _get("active_sheet", "Outlooks")
 
+# Full Session Log File
+SAVE_FULL_LOG_FILE      = _get("save_full_log_file", True)
+LOGS_DIR                = ROOT_DIR / "logs"
+LOGS_DIR.mkdir(exist_ok=True)
+CURRENT_LOG_FILE        = None
+
 # Biến cờ hiệu toàn cục để ngắt bot (Stop button)
 STOP_FLAG = False
 

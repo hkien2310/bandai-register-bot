@@ -41,6 +41,14 @@ async def main_async():
     log.info("🔥 BẮT ĐẦU CHẠY BOT ĐĂNG KÝ NAMCO PARKS")
     log.info("="*50)
 
+    # 0. Khởi tạo file log chi tiết nếu bật SAVE_FULL_LOG_FILE
+    if getattr(config, "SAVE_FULL_LOG_FILE", True):
+        from src.utils.logger import add_file_handler
+        log_file_path = config.LOGS_DIR / f"session_{time.strftime('%Y%m%d_%H%M%S')}.txt"
+        add_file_handler(str(log_file_path))
+        config.CURRENT_LOG_FILE = log_file_path
+        log.info(f"📝 [FULL LOG] Đã bật lưu log chi tiết phiên làm việc vào: {log_file_path.name}")
+
     # 1. Cấu hình số luồng
     worker_count = 1 if args.test else (args.workers if args.workers is not None else config.WORKER_COUNT)
     

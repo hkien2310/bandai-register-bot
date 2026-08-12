@@ -62,8 +62,23 @@ def get_logger(name: str) -> logging.Logger:
     logger.propagate = False
     return logger
 
+def remove_file_handler():
+    global _file_handler
+    if _file_handler:
+        for logger in logging.Logger.manager.loggerDict.values():
+            if isinstance(logger, logging.Logger) and not logger.propagate:
+                if _file_handler in logger.handlers:
+                    logger.removeHandler(_file_handler)
+        try:
+            _file_handler.close()
+        except Exception:
+            pass
+        _file_handler = None
+
 def add_file_handler(log_file: str):
     global _file_handler
+    remove_file_handler()
+    
     log_path = Path(log_file)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     
@@ -71,7 +86,7 @@ def add_file_handler(log_file: str):
     fh.setLevel(logging.DEBUG)
     fh.addFilter(WorkerPrefixFilter())
     fh.setFormatter(logging.Formatter(
-        fmt="%(asctime)s [%(levelname)s] %(name)s — %(worker_prefix)s%(message)s",
+        fmt="%(asctime)s [%(levelname)s] %(name)s —%(worker_prefix)s %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     ))
     _file_handler = fh
