@@ -123,12 +123,14 @@ async def run_step4(page: Page, email: str, password: str, nickname: str, birthd
                         "button:has-text('Save'), button[type='submit'], button.c-button--primary",
                         timeout=5000, state="visible"
                     )
-                    await save_btn.click()
-                    await page.wait_for_load_state("domcontentloaded", timeout=30000)
-                    await page.wait_for_timeout(1500)
+                    if save_btn:
+                        await save_btn.evaluate("el => el.click()")
+                        await page.wait_for_load_state("domcontentloaded", timeout=15000)
+                        await page.wait_for_timeout(1000)
                     continue
                 except Exception as e:
-                    log.warning(f"   addgender: Lỗi khi xử lý: {e}")
+                    if "not attached" not in str(e).lower():
+                        log.warning(f"   addgender: Lỗi khi xử lý: {e}")
 
             # 0. Check lỗi fatal (region blocked, v.v) trên trang trung gian
             try:
