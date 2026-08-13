@@ -78,18 +78,15 @@ def get_manual_phone(email: str = "") -> dict:
     manual_path = config.DATA_DIR / "manual_phone_numbers.json"
     with _manual_numbers_lock:
         if not manual_path.exists():
-            config.STOP_FLAG = True
             raise RuntimeError("Chưa có danh sách số điện thoại thủ công! Vui lòng bấm 'Nhập list SĐT' trên GUI để điền số.")
 
         try:
             with open(manual_path, "r", encoding="utf-8") as f:
                 raw_numbers = json.load(f)
         except Exception as e:
-            config.STOP_FLAG = True
             raise RuntimeError(f"Không thể đọc file manual_phone_numbers.json: {e}")
 
         if not isinstance(raw_numbers, list) or len(raw_numbers) == 0:
-            config.STOP_FLAG = True
             raise RuntimeError("Danh sách số điện thoại thủ công đang trống!")
 
         # Chuẩn hóa về list[dict]
@@ -113,9 +110,8 @@ def get_manual_phone(email: str = "") -> dict:
             json.dump(numbers, f, indent=4, ensure_ascii=False)
 
         if not valid_num:
-            config.STOP_FLAG = True
-            log.warning("🛑 Hết số điện thoại thủ công khả dụng! Kích hoạt STOP_FLAG để dừng toàn bộ tiến trình.")
-            raise RuntimeError("❌ Hết số điện thoại thủ công khả dụng trong danh sách! Dừng bot.")
+            log.warning(f"⚠️ Không còn SĐT thủ công rảnh nào cho {email or 'Worker'}. (Các luồng khác đang đợi nhập OTP sẽ tiếp tục chạy bình thường).")
+            raise RuntimeError("❌ Hết số điện thoại thủ công khả dụng trong danh sách cho luồng này!")
 
         phone_str = valid_num.get("phone", "").strip()
         log.info(f"📱 [SĐT Thủ Công] Giữ số: {phone_str} cho {email or 'Worker'} (còn rảnh {unused_count} số chưa dùng)")
